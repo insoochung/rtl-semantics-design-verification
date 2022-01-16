@@ -1,0 +1,149 @@
+// Following https://www.verilog.com/VerilogBNF.html
+
+// 1. Source Text
+
+start: always_statement
+
+// 2. Declarations
+
+// 3. Primitive Instances
+// These are merged with module instantiations
+
+// 4. Module Instantiations
+
+// 5. Behavioral Statements
+
+always_statement: "always" statement
+  | "always_ff" statement
+  | "always_comb" statement
+
+statement_or_null: statement
+	| ";"
+
+statement: blocking_assignment ";"
+	| non_blocking_assignment ";"
+	//| delay_or_event_control statement_or_null
+	| "wait" "(" expression ")" statement_or_null
+	| "-" name_of_event ";"
+	| seq_block
+	| "assign" assignment ";"
+	| if_else_statement
+	| case_statement
+
+if_else_statement: "if" "(" expression ")" statement_or_null
+	| "if" "(" expression ")" statement_or_null "else" statement_or_null
+
+case_statement: "unique"? "case" "(" expression ")" case_item+ "endcase"
+	| "unique"? "casez" "(" expression ")" case_item+ "endcase"
+	| "unique"? "casex" "(" expression ")" case_item+ "endcase"
+
+assignment: lvalue "=" expression
+
+blocking_assignment: lvalue "=" expression
+	//| lvalue "=" delay_or_event_control expression ";"
+
+non_blocking_assignment: lvalue "=" expression
+	//| lvalue "=" delay_or_event_control expression ";"
+
+case_item: expression ("," expression)* ":" statement_or_null
+	| "default" ":" statement_or_null
+	| "default" statement_or_null
+
+
+//delay_or_event_control: delay_control
+//  | event_control
+//  | "repeat" "("expression")" event_control
+
+seq_block: "begin" statement* "end"
+
+name_of_block: IDENTIFIER
+
+// 6. Specify Section
+
+
+// 7. Expressions
+
+lvalue: identifier
+	| identifier "[" expression "]"
+	| identifier "["constant_expression":"constant_expression"]"
+	|concatenation
+
+constant_expression	: expression
+
+mintypmax_expression: expression
+	| expression ":" expression ":" expression
+
+expression: primary
+	| UNARY_OPERATOR primary
+	| expression BINARY_OPERATOR expression
+	| expression QUESTION_MARK expression ":" expression
+	| STRING
+
+
+UNARY_OPERATOR: "+"| "-"| "!"| "~"| "&"| "~&"| "|"| "^|"| "^"| "~^"
+
+BINARY_OPERATOR: "+"|"-"|"*"|"/"|"%"|"=="|"!="|"==="|"!=="|"&&"|"||"|"<"|"<="|">"|">="|"&"|"|"|"^"|"^~"|">>"|"<<"
+
+QUESTION_MARK: "?"
+
+STRING: ESCAPED_STRING
+
+primary: NUMBER
+	| identifier
+	| identifier "[" expression "]"
+	| identifier "[" constant_expression ":" constant_expression "]"
+	| concatenation
+	| multiple_concatenation
+	| function_call
+	| "(" mintypmax_expression ")"
+
+NUMBER: DECIMAL_NUMBER
+	| UNSIGNED_NUMBER? BASE UNSIGNED_NUMBER
+	| DECIMAL_NUMBER "." UNSIGNED_NUMBER
+	| DECIMAL_NUMBER( "." UNSIGNED_NUMBER)? "E" DECIMAL_NUMBER
+	| DECIMAL_NUMBER( "." UNSIGNED_NUMBER)? "e" DECIMAL_NUMBER
+
+DECIMAL_NUMBER:("+"|"-")? UNSIGNED_NUMBER
+
+UNSIGNED_NUMBER:(HEXDIGIT|"_"|"z"|"Z"|"x"|"X")+
+
+BASE:"'b"|"'B"|"'o"|"'O"|"'d"|"'D"|"'h"|"'H"
+
+concatenation: "{" expression (","expression)* "}"
+
+multiple_concatenation: "{" expression "{" expression (","expression)* "}" "}"
+
+function_call: name_of_function "(" expression (","expression)* ")"
+	| name_of_system_function "(" expression (","expression)* ")"
+	| name_of_system_function
+
+name_of_function: identifier
+
+name_of_system_function: "$" identifier
+
+// 8. General
+?identifier: IDENTIFIER
+
+IDENTIFIER: CNAME
+          | ESCAPED_IDENTIFIER
+
+
+name_of_event: IDENTIFIER
+
+// Lark
+ESCAPED_IDENTIFIER: /\\([^\s]+)/
+COMMENT: "//" /[^\n]*/ NEWLINE
+NEWLINE: "\n"
+MULTILINE_COMMENT: /\/\*(\*(?!\/)|[^*])*\*\//
+
+%import common.CNAME
+%import common.ESCAPED_STRING
+%import common.DIGIT
+%import common.HEXDIGIT
+%import common.WS
+
+%ignore WS
+%ignore COMMENT
+%ignore MULTILINE_COMMENT
+%ignore NEWLINE
+

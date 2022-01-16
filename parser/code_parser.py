@@ -1,11 +1,7 @@
 import os
 from glob import glob
 
-BASE_DIR = os.path.abspath(
-  os.path.dirname(
-    os.path.dirname(__file__)))
-IBEX_DIR = os.path.join(BASE_DIR, "ibex")
-RTL_DIR = os.path.join(IBEX_DIR, "rtl")
+import config
 
 def has_token(line, token):
   return token in line.split("//")[0].split() # comment is not taken into account
@@ -62,10 +58,9 @@ def get_always_blocks_from_modules(module_str, line_num):
       if cnt_begin == 0: # end of always block
         do_append = False
         if always_str:
-          always_str = always_str.rstrip()
           # Make sure that we are saving a complete always block
           first_line = always_str.split("\n")[0] # this should begin with "always"
-          last_line = always_str.split("\n")[-1] # this should be equal to "end"
+          last_line = always_str.rstrip().split("\n")[-1] # this should be equal to "end"
           assert (len(first_line) - len(first_line.lstrip(' '))
                   == len(last_line) - len(last_line.lstrip(' '))), (
                     "Indent should be the same for start and end of the always block.",
@@ -83,7 +78,7 @@ def get_always_blocks_from_modules(module_str, line_num):
 
   return always_blocks
 
-def parse(rtl_dir=RTL_DIR, verbose=True):
+def parse(rtl_dir=config.RTL_DIR, verbose=True):
   if verbose:
     log_fn = print
   else:
