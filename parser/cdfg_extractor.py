@@ -24,8 +24,8 @@ def preprocess_always_str(always_str):
   res = "".join(lines)
   return res
 
-def parse_always_str(always_str):
-  parser = Lark.open("ibex_always.lark", rel_to=__file__)
+def parse_always_str(always_str, lark_rules=config.LARK_RULES):
+  parser = Lark.open(lark_rules)
   tree = parser.parse(always_str)
   print(tree.pretty())
 
