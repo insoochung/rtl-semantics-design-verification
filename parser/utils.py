@@ -40,11 +40,18 @@ def get_always_blocks_from_modules(module_str, line_num):
   always_str = ""
   always_linenum = 0
   cnt_begin = 0
+  no_synthesis = False
   for i, line in enumerate(module_str.split("\n")):
-    if line.strip().startswith("always"):
+    # Ignore unsynthesized lines
+    if line.strip() == "`ifndef SYNTHESIS":
+      no_synthesis = True
+    if no_synthesis and line.strip() == "`endif":
+      no_synthesis = False
+
+    if not no_synthesis and line.strip().startswith("always"):
       do_append = True
       always_linenum = line_num + i
-    
+
     if do_append:
       always_str += line + "\n"
       # We are assuming one statement for a line in an always block.
@@ -78,7 +85,7 @@ def get_always_blocks_from_modules(module_str, line_num):
 
   return always_blocks
 
-def parse(rtl_dir=config.RTL_DIR, verbose=True):
+def parse_rtl(rtl_dir=config.IBEX_RTL_DIR, verbose=True):
   if verbose:
     log_fn = print
   else:
@@ -107,9 +114,9 @@ def parse(rtl_dir=config.RTL_DIR, verbose=True):
       res[filename][module_name] = (line_num, always_blocks)
       cnt += len(always_blocks)
   log_fn()
-  log_fn("Total # always blocks: {} (should be 193)".format(cnt))
+  log_fn("Total # always blocks: {} (should be 192)".format(cnt))
 
   return res
 
 if __name__ == "__main__":
-  parse()
+  parse_rtl()
