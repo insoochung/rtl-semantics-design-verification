@@ -24,12 +24,14 @@ statement: blocking_assignment ";"
 	| function_call ";"
 
 
-if_else_statement: "if" "(" expression ")" statement_or_null
-	| "if" "(" expression ")" statement_or_null "else" statement_or_null
+if_else_statement: "if" "(" condition ")" statement_or_null
+	| "if" "(" condition ")" statement_or_null ("else if" "(" condition ")"statement_or_null)* "else" statement_or_null
 
-case_statement: UNIQUE? CASE "(" expression ")" case_item+ "endcase"
-	| UNIQUE? CASE "(" expression ")" case_item+ "endcase"
-	| UNIQUE? CASE "(" expression ")" case_item+ "endcase"
+condition: expression
+
+case_statement: UNIQUE? CASE "(" condition ")" case_item+ "endcase"
+	| UNIQUE? CASE "(" condition ")" case_item+ "endcase"
+	| UNIQUE? CASE "(" condition ")" case_item+ "endcase"
 
 assignment: lvalue ASSIGNMENT_OPERATOR expression
 	| lvalue INC_DEC_OPERATOR?
@@ -39,12 +41,12 @@ blocking_assignment: lvalue "=" expression
 
 non_blocking_assignment: lvalue "<=" expression
 
-case_item: expression ("," expression)* ":" statement_or_null
-	| "default" ":" statement_or_null
-	| "default" statement_or_null
+case_item: case_condition statement_or_null
+
+case_condition: expression ("," expression)* ":" | "default" ":" | "default"
 
 
-seq_block: "begin" (":" identifier)? statement* "end" (":" identifier)?
+?seq_block: "begin" (":" identifier)? statement* "end" (":" identifier)?
 
 name_of_block: IDENTIFIER
 
