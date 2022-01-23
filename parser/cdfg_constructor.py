@@ -6,7 +6,8 @@ from utils import preprocess_always_str
 TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 BRANCH_NODES = ["if_else_statement", "case_statement"]
 PROCEDURAL_NODES = ["seq_block"]
-PROMOTION_REQUIRED = ["if_else_statement", "case_statement", "case_item", "always_block", "for_statement", "seq_block", "always_statement"]
+CONDITION_STATEMENTS = ["if_else_statement", "case_statement", "case_item", "for_statement", "always_statement"]
+PROMOTION_REQUIRED = CONDITION_STATEMENTS + ["always_block", "seq_block"]
 
 class CdfgNodePair:
   def __init__(self, start_node, end_node):
@@ -175,20 +176,8 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None):
     if isinstance(c, Tree): _children.append(c)
   if require_promotion(lark_tree):
     # If promotable nodes (e.g. condition node) to its parent node.
-    if "case_statement" in lark_tree_type:
-      if _children[0].data == "condition":
-        _children = _children[1:]
-    elif "if_else_statement" in lark_tree_type:
-      if _children[0].data == "condition":
-        _children = _children[1:]
-    elif "case_item" in lark_tree_type:
-      if _children[0].data == "case_condition":
-        _children = _children[1:]
-    elif "always_statement" in lark_tree_type:
-      if _children[0].data == "always_condition":
-        _children = _children[1:]
-    elif "for_statement" in lark_tree_type:
-      if _children[0].data == "for_condition":
+    if any(x in lark_tree_type for x in CONDITION_STATEMENTS):
+      if _children[0].data.endswith("condition"):
         _children = _children[1:]
     elif "seq_block" in lark_tree_type:
       if _children[0].data == "block_identifier":
