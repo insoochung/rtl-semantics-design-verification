@@ -4,26 +4,13 @@ import re
 
 from lark import Lark
 from lark.reconstruct import Reconstructor
+from utils import preprocess_always_str
 from cdfg_constructor import construct_cdfg_for_always_block
 
 def get_parser_and_reconstructor(lark_rules):
   parser = Lark.open(lark_rules, maybe_placeholders=False, propagate_positions=True)
   reconstructor = Reconstructor(parser)
   return parser, reconstructor
-
-def strip_comments(text):
-    return re.sub('//.*?\n|/\*.*?\*/', '', text, flags=re.S)
-
-def preprocess_always_str(always_str):
-  # 1. Remove comments
-  res = strip_comments(always_str)
-  # 2. Replace multiple spaces with a single space, but indents are preserved.
-  lines = res.split("\n")
-  for i, line in enumerate(lines):
-    indent_size = len(line) - len(line.lstrip())
-    lines[i] = " " * indent_size + " ".join(line.split()) + "\n"
-  res = "".join(lines)
-  return res
 
 def _test_parsing_integrity(always_str, parser, reconstructor):
   test_str = preprocess_always_str(always_str)
@@ -44,7 +31,7 @@ def test_parsing_integrity(parsed_rtl, parser, reconstructor):
         _test_parsing_integrity(always_str, parser, reconstructor)
 
 def reformat_always_for_cdfg(always_str, parser, reconstructor):
-  construct_cdfg_for_always_block(preprocess_always_str(always_str), parser)
+  construct_cdfg_for_always_block(always_str, parser)
 
 if __name__ == "__main__":
   parsed_rtl = utils.parse_rtl()

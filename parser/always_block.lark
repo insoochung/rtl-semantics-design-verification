@@ -3,6 +3,10 @@
 start: always_statement
 
 always_statement: ALWAYS always_condition? statement
+	| ALWAYS always_condition? BEGIN statement END
+
+BEGIN: "begin"
+END: "end"
 
 always_condition: "@(" edge_condition ("or" edge_condition)* ")"
 
@@ -43,14 +47,12 @@ assignment: lvalue ASSIGNMENT_OPERATOR expression
 blocking_assignment: lvalue "=" expression
 
 non_blocking_assignment: lvalue "<=" expression
-
 case_item: case_condition statement_or_null
 
-case_condition: expression ("," expression)* ":" | "default" ":" | "default"
+case_condition: expression ("," expression)* ":"
 
-
-?seq_block: "begin" statement* "end"
-	| "begin" block_identifier statement* "end" block_identifier?
+?seq_block: BEGIN statement* END
+	| BEGIN block_identifier statement* END block_identifier?
 
 block_identifier: ":" IDENTIFIER
 
@@ -78,6 +80,7 @@ expression: primary
 	| primary "'(" primary ")"
 	| dictionary
 	| MACRO
+	| "default"
 
 primary: NUMBER
 	| identifier
