@@ -49,7 +49,7 @@ def reformat_always_for_cdfg(always_str, parser, reconstructor):
 if __name__ == "__main__":
   parsed_rtl = utils.parse_rtl()
   parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
-  # test_parsing_integrity(parsed_rtl, parser, reconstructor)
+  test_parsing_integrity(parsed_rtl, parser, reconstructor)
   for filename, modules in parsed_rtl.items():
     for module_name, (line_num, always_blocks) in modules.items():
       for always_block in always_blocks:

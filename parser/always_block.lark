@@ -20,12 +20,15 @@ statement: blocking_assignment ";"
 	| seq_block
 	| if_else_statement
 	| case_statement
-	| "for" "(" assignment ";" expression ";" assignment ")" statement
+	| for_statement
 	| function_call ";"
 
+for_statement: "for" "(" for_condition ")" statement
+
+for_condition: assignment ";" expression ";" assignment
 
 if_else_statement: "if" "(" condition ")" statement_or_null
-	| "if" "(" condition ")" statement_or_null ("else if" "(" condition ")"statement_or_null)* "else" statement_or_null
+	| "if" "(" condition ")" statement_or_null "else" statement_or_null
 
 condition: expression
 
@@ -46,9 +49,10 @@ case_item: case_condition statement_or_null
 case_condition: expression ("," expression)* ":" | "default" ":" | "default"
 
 
-?seq_block: "begin" (":" identifier)? statement* "end" (":" identifier)?
+?seq_block: "begin" statement* "end"
+	| "begin" block_identifier statement* "end" block_identifier?
 
-name_of_block: IDENTIFIER
+block_identifier: ":" IDENTIFIER
 
 lvalue: identifier
 	| identifier index+  ("." identifier)?

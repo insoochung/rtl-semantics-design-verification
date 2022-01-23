@@ -1,15 +1,12 @@
-# from lark.visitors import Vistor
-
 import copy
 from os import terminal_size
 from re import A
 from lark.tree import Tree
-from lark.reconstruct import Reconstructor, is_id_continue
 
-TERMINAL_NODES = ["statement", "statement_or_null", "case_condition"]
+TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 BRANCH_NODES = ["if_else_statement", "case_statement"]
 PROCEDURAL_NODES = ["seq_block"]
-PROMOTION_REQUIRED = ["if_else_statement", "case_statement", "case_item", "always_block"]
+PROMOTION_REQUIRED = ["if_else_statement", "case_statement", "case_item", "always_block", "for_statement", "seq_block", "always_statement"]
 
 class CdfgNodePair:
   def __init__(self, start_node, end_node):
@@ -74,6 +71,7 @@ def is_terminal(lark_tree):
   
   if lark_tree.data not in TERMINAL_NODES:
     return False
+
   for d in TERMINAL_NODES:
     for c in lark_tree.children:
       if list(c.find_data(d)) != []:
@@ -147,8 +145,8 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None):
     cutoff_idx += 1
   _children = _children[cutoff_idx:]
   if require_promotion(lark_tree):
+    # If promotable nodes (e.g. condition node) to its parent node.
     if "case_statement" in lark_tree_type:
-      # If the node is a case statement, promote the condition node to its parent node.
       if _children[0].data == "condition":
         _children = _children[1:]
     elif "if_else_statement" in lark_tree_type:
@@ -157,9 +155,22 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None):
     elif "case_item" in lark_tree_type:
       if _children[0].data == "case_condition":
         _children = _children[1:]
+    elif "always_statement" in lark_tree_type:
+      if _children[0].data == "always_condition":
+        _children = _children[1:]
+    elif "for_statement" in lark_tree_type:
+      if _children[0].data == "for_condition":
+        _children = _children[1:]
+    elif "seq_block" in lark_tree_type:
+      if _children[0].data == "block_identifier":
+        _children = _children[1:]
+        if _children[-1].data == "block_identifier":
+          _children = _children[:-1]
+
     else:
       assert False, f"No rule for {lark_tree_type} implemented."
-
+  if len(_children) == 0:
+    assert False, f"Something wrong... Should contain children but there are none '{init_data}'"
   # Build start node
   start_init_data = copy.deepcopy(init_data)
   start_init_data["end_pos"] = _children[0].meta.start_pos - 1
@@ -183,6 +194,7 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None):
     for c in children:
       connect_cdfg(start_node, c)
       connect_cdfg(c, end_node)
+    connect_cdfg(start_node, end_node) # When no possible condition is met.
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
     connect_cdfg(start_node, children[0])
@@ -203,10 +215,9 @@ def construct_cdfg_for_always_block(always_str, parser):
   lark_root = parser.parse(always_str_oneline)
 
   print(always_str)
+  print(lark_root.pretty())
   cdfg = get_cdfg(always_str_oneline, lark_root)
   nodes = number_cdfg_nodes_topdown(cdfg)
   connect_cdfg(nodes[-1], nodes[0]) # Connect the last node to the first node.
   for n in nodes:
     print(n)
-  
-  input()
