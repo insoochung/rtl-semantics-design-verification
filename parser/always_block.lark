@@ -15,8 +15,7 @@ edge_condition: EDGE identifier | expression
 statement_or_null: statement
 	| ";"
 
-statement: blocking_assignment ";"
-	| non_blocking_assignment ";"
+statement: tenary_assignment
 	| assignment ";"
 	| "assign" assignment ";"
 	| "wait" "(" expression ")" statement_or_null
@@ -26,6 +25,7 @@ statement: blocking_assignment ";"
 	| case_statement
 	| for_statement
 	| function_call ";"
+	| "(" statement ")"
 
 for_statement: "for" "(" for_condition ")" statement
 
@@ -43,10 +43,8 @@ case_statement: UNIQUE? CASE "(" condition ")" case_item+ "endcase"
 assignment: lvalue ASSIGNMENT_OPERATOR expression
 	| lvalue INC_DEC_OPERATOR?
 	| INC_DEC_OPERATOR? lvalue
+	| lvalue "<=" expression -> nonblocking_assignment
 
-blocking_assignment: lvalue "=" expression
-
-non_blocking_assignment: lvalue "<=" expression
 case_item: case_condition statement_or_null
 
 case_condition: expression ("," expression)* ":"
@@ -74,13 +72,19 @@ mintypmax_expression: expression
 expression: primary
 	| UNARY_OPERATOR primary
 	| expression BINARY_OPERATOR expression
-	| expression QUESTION_MARK expression ":" expression
 	| STRING
 	| DEFAULT_BIT
 	| primary "'(" primary ")"
 	| dictionary
 	| MACRO
 	| "default"
+	| "(" expression ")"
+	| tenary_expression
+
+
+tenary_assignment: lvalue ASSIGNMENT_OPERATOR tenary_expression ";"
+	| "assign" lvalue ASSIGNMENT_OPERATOR tenary_expression ";"
+tenary_expression: condition QUESTION_MARK expression ":" expression
 
 primary: NUMBER
 	| identifier
@@ -119,7 +123,7 @@ INC_DEC_OPERATOR: "++" | "--"
 
 UNARY_OPERATOR: "+"| "-"| "!"| "~"| "&"| "~&"| "|"| "^|"| "^"| "~^"
 
-BINARY_OPERATOR: "+"|"-"|"*"|"/"|"%"|"=="|"!="|"==="|"!=="|"&&"|"||"|"<"|"<="|">"|">="|"&"|"|"|"^"|"^~"|">>"|"<<"|">>>"|"<<<"
+BINARY_OPERATOR: "+"|"-"|"*"|"/"|"%"|"=="|"!="|"==="|"!=="|"&&"|"||"|"<"|"<="|">"|">="|"&"|"|"|"^"|"^~"|">>"|"<<"|">>>"|"<<<"|"&&"
 
 ASSIGNMENT_OPERATOR : "="|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>="|"<<<="|">>>="
 
