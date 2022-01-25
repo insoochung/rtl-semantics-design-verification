@@ -73,8 +73,12 @@ class CdfgNode:
       ret.extend(node.to_list())
     return ret
 
-  def set_node_num(self, n):
-    self.node_num = n
+  def set_node_num(self, n, force=False):
+    if not hasattr(self, "node_num"):
+      self.node_num = n
+    elif self.node_num != n and not force:
+      raise Exception(
+        f"Node number is already set to {self.node_num} but is being set to {n}")
 
   def __str__(self):
     return (f"{get_indent_str(self.indent)}{self.partial_str} "
@@ -97,6 +101,21 @@ class CdfgNode:
 
   def update_partial_str(self):
     self.partial_str = get_partial_str(self.full_str, self.start_pos, self.end_pos)
+
+  def is_reducible(self):
+    return (self.partial_str.strip() == ""
+      and "always" not in self.type
+      and len(self.prev_nodes) == 1 and len(self.prev_nodes[0].next_nodes) == 1
+      and len(self.next_nodes) == 1 and len(self.next_nodes[0].prev_nodes) == 1)
+
+  def replace_next_node(self, old_node, new_node):
+    self.next_nodes.remove(old_node)
+    self.next_nodes.append(new_node)
+
+  def replace_prev_node(self, old_node, new_node):
+    self.prev_nodes.remove(old_node)
+    self.prev_nodes.append(new_node)
+
 
 def is_terminal(lark_tree):
   if not lark_tree.children:
@@ -141,6 +160,7 @@ def get_partial_str(s, start_pos, end_pos):
     return s[start_pos:end_pos + 1].strip()
 
 def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None):
+  # TODO: Handle tenary assignment.
   if not isinstance(lark_tree, Tree):
     return None
   lark_tree_type = lark_tree.data.strip()
@@ -227,30 +247,37 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None):
 
   return CdfgNodePair(start_node, end_node)
 
-def number_cdfg_nodes(root, offset=0):
+def number_cdfg_nodes(root, node_offset=0):
   nodes = root.to_list()
   for i, n in enumerate(nodes):
-    n.set_node_num(i + offset)
+    n.set_node_num(i + node_offset)
   return nodes
 
-def stringify_cdfg(cdfg):
-  nodes = number_cdfg_nodes(cdfg)
+def stringify_cdfg(cdfg, node_offset):
+  nodes = number_cdfg_nodes(cdfg, node_offset)
   return "\n".join(str(n) for n in nodes) + "\n"
 
-def construct_cdfg_for_always_block(always_str, parser):
+def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
+                                    check_equivalence=True, manual_inspection=False):
   always_str_oneline = " ".join(preprocess_always_str(always_str).split())
   lark_root = parser.parse(always_str_oneline)
   cdfg = get_cdfg(always_str_oneline, lark_root)
-  nodes = number_cdfg_nodes(cdfg)
+  nodes = cdfg.to_list()
   connect_cdfg(nodes[-1], nodes[0]) # Connect the last node to the first node.
 
   # Confirm CDFG reconstruction is equivalent to the original always block.
-  cdfg_str = stringify_cdfg(cdfg)
-  orig = preprocess_always_str(always_str, no_space=True)
-  comp = preprocess_always_str(cdfg_str, no_space=True)
-  assert orig == comp, f"\n{orig}\n!=\n{comp}"
+  cdfg_str = stringify_cdfg(cdfg, node_offset=node_offset)
+  if check_equivalence:
+    orig = preprocess_always_str(always_str, no_space=True)
+    comp = preprocess_always_str(cdfg_str, no_space=True)
+    assert orig == comp, f"\n{orig}\n!=\n{comp}"
 
-  # Print to assess manually.
-  print(f"\nOriginal:\n{always_str}\nReconstructed:\n{cdfg_str}")
-  input("String equivalence is verified. Proceed to check the correctness of the node information.\n"
-        "Press Enter to continue...")
+  if manual_inspection: # Print to assess manually.
+    print(f"\nOriginal:\n{always_str}\nReconstructed:\n{cdfg_str}")
+    if check_equivalence:
+      print("String equivalence is verified. "
+            "Proceed to check the correctness of the node information.\n")
+    input("Press Enter to continue...")
+
+  ret = {"cdfg": cdfg, "num_nodes": len(nodes), "cdfg_str": cdfg_str}
+  return ret
