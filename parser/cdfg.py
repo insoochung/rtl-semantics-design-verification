@@ -1,17 +1,17 @@
 from utils import get_partial_str, get_indent_str
 
-def connect_cdfg(prev, next):
+def connect_nodes(prev, next):
   prev.append_next_nodes(next)
   next.append_prev_nodes(prev)
 
-def number_cdfg_nodes(root, node_offset=0):
+def number_cdfg_nodes(root, node_offset=0, force=False):
   nodes = root.to_list()
   for i, n in enumerate(nodes):
-    n.set_node_num(i + node_offset)
+    n.set_node_num(i + node_offset, force=force)
   return nodes
 
-def stringify_cdfg(cdfg, node_offset):
-  nodes = number_cdfg_nodes(cdfg, node_offset)
+def stringify_cdfg(cdfg, node_offset=0):
+  nodes = number_cdfg_nodes(cdfg, node_offset, force=False)
   prefix = "// <ALWAYS_BLOCK> "
   prefix += "{" + f"\"condition_variables\": {list(cdfg.condition_variables)}, "
   prefix += f"\"assigned_variables\": {list(cdfg.assigned_variables)}" + "}\n"
@@ -19,6 +19,18 @@ def stringify_cdfg(cdfg, node_offset):
   postfix = "// </ALWAYS_BLOCK>\n"
   ret = prefix + ret + postfix
   return ret
+
+def _maybe_connect_cdfgs(cdfg_a, cdfg_b):
+  assert cdfg_a != cdfg_b
+  if cdfg_a.assigned_variables & cdfg_b.condition_variables:
+    connect_nodes(cdfg_a.root, cdfg_b.root)
+  if cdfg_b.assigned_variables & cdfg_a.condition_variables:
+    connect_nodes(cdfg_b.root, cdfg_a.root)
+
+def maybe_connect_cdfgs(cdfgs):
+  for i, cdfg_a in enumerate(cdfgs):
+    for cdfg_b in cdfgs[i + 1:]:
+      _maybe_connect_cdfgs(cdfg_a, cdfg_b)
 
 class CdfgNode:
   """ Member attributes:
@@ -69,9 +81,10 @@ class CdfgNode:
   def set_node_num(self, n, force=False):
     if not hasattr(self, "node_num"):
       self.node_num = n
-    elif self.node_num != n and not force:
-      raise Exception(
-        f"Node number is already set to {self.node_num} but is being set to {n}")
+    elif self.node_num != n:
+      if force:
+        self.node_num = n
+        print("node_num is overwritten: {self.node_num}->{n}")
 
   def __str__(self):
     return (f"{get_indent_str(self.indent)}{self.statement} "
@@ -161,3 +174,6 @@ class Cdfg:
 
   def identify_condition_variables(self):
     self.condition_variables = self._identify_variables("condition")
+
+  def __str__(self):
+    return stringify_cdfg(self.root)

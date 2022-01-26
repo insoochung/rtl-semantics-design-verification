@@ -2,7 +2,7 @@ import copy
 from lark.tree import Tree
 
 from utils import preprocess_always_str, get_partial_str
-from cdfg import Cdfg, CdfgNode, CdfgNodePair, connect_cdfg, stringify_cdfg
+from cdfg import Cdfg, CdfgNode, CdfgNodePair, connect_nodes, stringify_cdfg
 
 TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 DONT_AGGREGATE_NODES = ["ternary_assignment", "ternary_expression"]
@@ -43,12 +43,6 @@ def is_same_as_only_child(tree):
       if m.start_pos == child_m.start_pos and m.end_pos == child_m.end_pos:
         return True
   return False
-
-def maybe_promote_empty_node(node):
-  if (node.statement.strip() != ""
-      and len(node.prev_nodes) == 1
-      and len(node.next_nodes) == 1):
-    return node
 
 def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
              terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=TERMINAL_NODES + DONT_AGGREGATE_NODES):
@@ -141,15 +135,15 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
   if any(x in lark_tree_type for x in BRANCH_NODES):
     # If the node is a branch node, connect the start and end nodes via a child node.
     for c in children:
-      connect_cdfg(start_node, c)
-      connect_cdfg(c, end_node)
+      connect_nodes(start_node, c)
+      connect_nodes(c, end_node)
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
-    connect_cdfg(start_node, children[0])
+    connect_nodes(start_node, children[0])
     for i, c in enumerate(children):
       if i > 0:
-        connect_cdfg(children[i - 1], c)
-    connect_cdfg(start_node, end_node)
+        connect_nodes(children[i - 1], c)
+    connect_nodes(children[-1], end_node)
 
   return CdfgNodePair(start_node, end_node)
 
@@ -160,7 +154,7 @@ def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
   lark_root = parser.parse(always_str_oneline)
   cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root))
   nodes = cdfg.to_list()
-  connect_cdfg(nodes[-1], nodes[0]) # Connect the last node to the first node.
+  connect_nodes(nodes[-1], nodes[0]) # Connect the last node to the first node.
 
   # Confirm CDFG reconstruction is equivalent to the original always block.
   cdfg_str = stringify_cdfg(cdfg, node_offset=node_offset)
