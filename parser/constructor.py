@@ -143,14 +143,13 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
     for c in children:
       connect_cdfg(start_node, c)
       connect_cdfg(c, end_node)
-    connect_cdfg(start_node, end_node) # When no possible condition is met.
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
     connect_cdfg(start_node, children[0])
     for i, c in enumerate(children):
       if i > 0:
         connect_cdfg(children[i - 1], c)
-    connect_cdfg(children[-1], end_node)
+    connect_cdfg(start_node, end_node)
 
   return CdfgNodePair(start_node, end_node)
 
