@@ -67,29 +67,29 @@ def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=
           f"Line number mismatch: {first_line} (line # {line_num}) != {first_line_actual}"
         # Prepend the lines in between always blocks
         # reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num + 1:line_num])
-        non_always_text.append("".join(orig_lines[prev_line_num + 1:line_num]))
+        non_always_text.append("".join(orig_lines[prev_line_num - 1:line_num]))
         # Replace the original always block with the reformatted one
         cdfg = construct_cdfg_for_always_block(always_str, parser, offset)
-
-        # reformatted_text = reformatted_text + "\n".join(
-        #   " " * indent_actual + l for l in cdfg["cdfg_str"].split("\n")
-        # ).rstrip() + "\n" * 2
-        prev_line_num = line_num + len(always_lines) - 1
+        prev_line_num = line_num + len(always_lines)
         offset += cdfg["num_nodes"]
+        cdfg["indent"] = indent_actual
         cdfgs[filepath][module_name].append(cdfg)
-      # TODO: Add data edges between CDFGs.
-      module_cdfgs = [x["cdfg"] for x in cdfgs[filepath][module_name]]
-      maybe_connect_cdfgs(module_cdfgs)
+      # Add data edges between CDFGs.
+      module_cdfgs = cdfgs[filepath][module_name]
+      maybe_connect_cdfgs([cdfg["cdfg"] for cdfg in module_cdfgs])
       always_cdfgs += module_cdfgs
+
     # Replace always blocks in the original file with the reformatted ones
     reformatted_text = ""
     assert len(always_cdfgs) == len(non_always_text)
     for i, cdfg in enumerate(always_cdfgs):
-      reformatted_text += non_always_text[i] + stringify_cdfg(cdfg) + "\n"
-
+      reformatted_text += non_always_text[i]
+      reformatted_text += "\n".join(
+        " " * cdfg["indent"] + x for x in stringify_cdfg(cdfg["cdfg"]).split("\n")).rstrip() + "\n"
     # Append the last lines
-    reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num + 1:])
+    reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num:])
     cdfgs[filepath]["text"] = reformatted_text
+
     if write_to_file:
       new_filepath = get_new_filepath(filepath, write_dir=write_dir, postfix=postfix)
       with open(new_filepath, "w") as f:
