@@ -14,7 +14,7 @@ edge_condition: EDGE identifier | expression
 statement_or_null: statement
 	| ";"
 
-statement: tenary_assignment
+statement: ternary_assignment ";"
 	| assignment ";"
 	| "assign" assignment ";"
 	| "wait" "(" expression ")" statement_or_null
@@ -58,7 +58,7 @@ lvalue: identifier
 	| concatenation
 	| var_type identifier
 
-index: ("[" expression "]")
+index: "[" expression "]"
 	| "[" constant_expression INDEXING_OPERATOR constant_expression "]"
 
 var_type: DATATYPE SIGN?
@@ -78,12 +78,12 @@ expression: primary
 	| MACRO
 	| "default"
 	| "(" expression ")"
-	| tenary_expression
+	| ternary_expression
 
 
-tenary_assignment: lvalue ASSIGNMENT_OPERATOR tenary_expression ";"
-	| "assign" lvalue ASSIGNMENT_OPERATOR tenary_expression ";"
-tenary_expression: condition QUESTION_MARK expression ":" expression
+ternary_assignment: lvalue ASSIGNMENT_OPERATOR ternary_expression
+	| "assign" lvalue ASSIGNMENT_OPERATOR ternary_expression
+ternary_expression: condition QUESTION_MARK expression ":" expression
 
 primary: NUMBER
 	| identifier
