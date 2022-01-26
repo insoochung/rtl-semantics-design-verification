@@ -8,4 +8,4 @@ PARSER_DIR = os.path.join(BASE_DIR, "parser")
 IBEX_DIR = os.path.join(BASE_DIR, "ibex")
 
 IBEX_RTL_DIR = os.path.join(IBEX_DIR, "rtl")
-ALWAYS_BLOCK_RULES = os.path.join(PARSER_DIR, "always_block.lark")
+ALWAYS_BLOCK_RULES = os.path.join(PARSER_DIR, "ibex.lark")

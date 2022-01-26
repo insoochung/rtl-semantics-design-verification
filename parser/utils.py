@@ -130,6 +130,11 @@ def preprocess_always_str(always_str, no_space=False):
     res = "".join(res.split())
   return res
 
+def get_indent_str(indent):
+  return " " * indent
+
+def get_partial_str(s, start_pos, end_pos):
+  return s[start_pos:end_pos + 1].strip()
 
 if __name__ == "__main__":
   parse_rtl()

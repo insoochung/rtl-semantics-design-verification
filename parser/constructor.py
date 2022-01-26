@@ -1,7 +1,8 @@
 import copy
 from lark.tree import Tree
 
-from utils import preprocess_always_str
+from utils import preprocess_always_str, get_indent_str, get_partial_str
+from cdfg import Cdfg, CdfgNode, CdfgNodePair
 
 TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 DONT_AGGREGATE_NODES = ["ternary_assignment", "ternary_expression"]
@@ -9,114 +10,6 @@ BRANCH_NODES = ["if_else_statement", "case_statement", "ternary_assignment"]
 PROCEDURAL_NODES = ["seq_block"]
 CONDITION_STATEMENTS = ["if_else_statement", "case_statement", "case_item", "for_statement", "always_statement", "ternary_expression"]
 PROMOTION_REQUIRED = CONDITION_STATEMENTS + ["always_block", "seq_block", "ternary_assignment", "assignment"]
-
-class CdfgNodePair:
-  def __init__(self, start_node, end_node):
-    self.start_node = start_node
-    self.end_node = end_node
-
-  def __str__(self):
-    return str(self.start_node) + "\n" + str(self.end_node)
-
-  def append_prev_nodes(self, prev_node):
-    self.start_node.append_prev_nodes(prev_node)
-
-  def append_next_nodes(self, next_node):
-    self.end_node.append_next_nodes(next_node)
-
-  def to_list(self):
-    return self.start_node.to_list() + self.end_node.to_list()
-
-  def get_start_pos(self):
-    return self.start_node.start_pos
-
-  def get_end_pos(self):
-    return self.end_node.end_pos
-
-  def update_start_pos(self, start_pos):
-    self.start_node.update_start_pos(start_pos)
-
-  def update_end_pos(self, end_pos):
-    self.end_node.update_end_pos(end_pos)
-
-
-class CdfgNode:
-  def __init__(self, iterable=(), **kwargs):
-    self.__dict__.update(iterable, **kwargs)
-    self.prev_nodes = []
-    self.next_nodes = []
-
-  def get_start_pos(self):
-    return self.start_pos
-
-  def get_end_pos(self):
-    return self.end_pos
-
-  def append_prev_nodes(self, prev_node):
-    if isinstance(prev_node, CdfgNode):
-      self.prev_nodes.append(prev_node)
-    elif isinstance(prev_node, CdfgNodePair):
-      self.prev_nodes.append(prev_node.end_node)
-    else:
-      assert False, f"{prev_node} is not a CdfgNode or CdfgNodePair"
-
-  def append_next_nodes(self, next_node):
-    if isinstance(next_node, CdfgNode):
-      self.next_nodes.append(next_node)
-    elif isinstance(next_node, CdfgNodePair):
-      self.next_nodes.append(next_node.start_node)
-    else:
-      assert False, f"{next_node} is not a CdfgNode or CdfgNodePair"
-
-  def to_list(self):
-    ret = [self]
-    for node in self.children:
-      ret.extend(node.to_list())
-    return ret
-
-  def set_node_num(self, n, force=False):
-    if not hasattr(self, "node_num"):
-      self.node_num = n
-    elif self.node_num != n and not force:
-      raise Exception(
-        f"Node number is already set to {self.node_num} but is being set to {n}")
-
-  def __str__(self):
-    return (f"{get_indent_str(self.indent)}{self.partial_str} "
-            "// {"
-            f"\"node_num\": {self.node_num}, "
-            f"\"type\": \"{self.type}\", "
-            # f"\"start_pos\": {self.start_pos}, "
-            # f"\"end_pos\": {self.end_pos}, "
-            f"\"prev_nodes\": {[x.node_num for x in self.prev_nodes]}, "
-            f"\"next_nodes\": {[x.node_num for x in self.next_nodes]}"
-            "}")
-
-  def update_start_pos(self, start_pos):
-    self.start_pos = start_pos
-    self.update_partial_str()
-
-  def update_end_pos(self, end_pos):
-    self.end_pos = end_pos
-    self.update_partial_str()
-
-  def update_partial_str(self):
-    self.partial_str = get_partial_str(self.full_str, self.start_pos, self.end_pos)
-
-  def is_reducible(self):
-    return (self.partial_str.strip() == ""
-      and "always" not in self.type
-      and len(self.prev_nodes) == 1 and len(self.prev_nodes[0].next_nodes) == 1
-      and len(self.next_nodes) == 1 and len(self.next_nodes[0].prev_nodes) == 1)
-
-  def replace_next_node(self, old_node, new_node):
-    self.next_nodes.remove(old_node)
-    self.next_nodes.append(new_node)
-
-  def replace_prev_node(self, old_node, new_node):
-    self.prev_nodes.remove(old_node)
-    self.prev_nodes.append(new_node)
-
 
 def is_terminal(lark_tree, terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=TERMINAL_NODES + DONT_AGGREGATE_NODES):
   # If there are no Tree children, the node is terminal
@@ -141,9 +34,6 @@ def is_terminal(lark_tree, terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=T
 def require_promotion(lark_tree):
   return lark_tree.data in PROMOTION_REQUIRED
 
-def get_indent_str(indent):
-    return " " * indent
-
 def is_same_as_only_child(tree):
   if len(tree.children) == 1:
     m = tree.meta
@@ -163,9 +53,6 @@ def maybe_promote_empty_node(node):
       and len(node.prev_nodes) == 1
       and len(node.next_nodes) == 1):
     return node
-
-def get_partial_str(s, start_pos, end_pos):
-  return s[start_pos:end_pos + 1].strip()
 
 def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
              terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=TERMINAL_NODES + DONT_AGGREGATE_NODES):
