@@ -10,8 +10,11 @@ git submodule update --init --recursive
 pip install -r requirements.txt
 
 # 3. Run CDFG generation and RTL reformatting.
-python parser/always_parser.py
+python parser/parser.py
 
-# 4. Check reformatted RTL for generated node information 
+# 4. Examine reformatted RTL for generated node information
+
 vim reformatted/ibex_alu.sv # An example
+...
+
 ```
