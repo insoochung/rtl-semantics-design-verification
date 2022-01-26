@@ -3,7 +3,6 @@
 start: always_statement
 
 always_statement: ALWAYS always_condition? statement
-	| ALWAYS always_condition? BEGIN statement END
 
 BEGIN: "begin"
 END: "end"
