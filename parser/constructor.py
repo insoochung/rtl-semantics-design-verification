@@ -6,7 +6,7 @@ from cdfg import Cdfg, CdfgNode, CdfgNodePair
 
 TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 DONT_AGGREGATE_NODES = ["ternary_assignment", "ternary_expression"]
-BRANCH_NODES = ["if_else_statement", "case_statement", "ternary_assignment"]
+BRANCH_NODES = ["if_else_statement", "case_statement", "ternary_expression"]
 PROCEDURAL_NODES = ["seq_block"]
 CONDITION_STATEMENTS = ["if_else_statement", "case_statement", "case_item", "for_statement", "always_statement", "ternary_expression"]
 PROMOTION_REQUIRED = CONDITION_STATEMENTS + ["always_block", "seq_block", "ternary_assignment", "assignment"]
@@ -147,14 +147,13 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
     for c in children:
       connect_cdfg(start_node, c)
       connect_cdfg(c, end_node)
-    connect_cdfg(start_node, end_node) # When no possible condition is met.
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
     connect_cdfg(start_node, children[0])
     for i, c in enumerate(children):
       if i > 0:
         connect_cdfg(children[i - 1], c)
-    connect_cdfg(children[-1], end_node)
+    connect_cdfg(start_node, end_node)
 
   return CdfgNodePair(start_node, end_node)
 
