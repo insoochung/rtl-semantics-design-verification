@@ -1,4 +1,5 @@
 import os
+import re
 from glob import glob
 
 import config
@@ -11,7 +12,7 @@ def get_modules_from_file(filepath):
   modules = {}
   with open(filepath, "r") as f:
     lines = f.readlines()
-  
+
   module_str = ""
   module_name = ""
   do_append = False
@@ -20,10 +21,10 @@ def get_modules_from_file(filepath):
       do_append = True
       module_name = line.split(" ")[1].strip()
       start_linenum = i + 1
-    
+
     if do_append:
       module_str += line
-    
+
     if line.startswith("endmodule"):
       do_append = False
       if module_name:
@@ -79,8 +80,6 @@ def get_always_blocks_from_modules(module_str, line_num):
                     "Always block should start with 'always' and end with 'end'"
                   )
           always_blocks.append((always_linenum, always_str))
-          
-
         always_str = ""
 
   return always_blocks
@@ -96,27 +95,41 @@ def parse_rtl(rtl_dir=config.IBEX_RTL_DIR, verbose=True):
   sv_filepaths = glob(os.path.join(rtl_dir, "*.sv"))
   files_to_modules = {}
   for filepath in sv_filepaths:
-    filename = os.path.basename(filepath)
-    files_to_modules[filename] = get_modules_from_file(filepath)
-    log_fn("Module extraction: filename={}, # modules={}".format(
-      filename, len(files_to_modules[filename])))
+    files_to_modules[filepath] = get_modules_from_file(filepath)
+    log_fn("Module extraction: filepath='{}', # modules={}".format(
+      filepath, len(files_to_modules[filepath])))
   log_fn()
   cnt = 0
   res = {}
-  for filename, modules in files_to_modules.items():
-    res[filename] = {}
+  for filepath, modules in files_to_modules.items():
+    res[filepath] = {}
     for module_name, (line_num, module_str) in modules.items():
-      log_fn("Always extraction: filename={}, modulename={}".format(
-        filename, module_name))
       always_blocks = get_always_blocks_from_modules(module_str, line_num)
-      log_fn("Always extraction: filename={}, modulename={}, # always={}".format(
-        filename, module_name, len(always_blocks)))
-      res[filename][module_name] = (line_num, always_blocks)
+      log_fn("Always extraction: filepath='{}', modulename={}, # always={}".format(
+        filepath, module_name, len(always_blocks)))
+      res[filepath][module_name] = (line_num, always_blocks)
       cnt += len(always_blocks)
   log_fn()
   log_fn("Total # always blocks: {} (should be 192)".format(cnt))
 
   return res
+
+def strip_comments(text):
+    return re.sub('//.*?\n|/\*.*?\*/', '', text, flags=re.S)
+
+def preprocess_always_str(always_str, no_space=False):
+  # 1. Remove comments
+  res = strip_comments(always_str)
+  # 2. Replace multiple spaces with a single space, but indents are preserved.
+  lines = res.split("\n")
+  for i, line in enumerate(lines):
+    indent_size = len(line) - len(line.lstrip())
+    lines[i] = " " * indent_size + " ".join(line.split()) + "\n"
+  res = "".join(lines)
+  if no_space:
+    res = "".join(res.split())
+  return res
+
 
 if __name__ == "__main__":
   parse_rtl()

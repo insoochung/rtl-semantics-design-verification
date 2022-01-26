@@ -3,6 +3,10 @@
 start: always_statement
 
 always_statement: ALWAYS always_condition? statement
+	| ALWAYS always_condition? BEGIN statement END
+
+BEGIN: "begin"
+END: "end"
 
 always_condition: "@(" edge_condition ("or" edge_condition)* ")"
 
@@ -11,8 +15,7 @@ edge_condition: EDGE identifier | expression
 statement_or_null: statement
 	| ";"
 
-statement: blocking_assignment ";"
-	| non_blocking_assignment ";"
+statement: tenary_assignment
 	| assignment ";"
 	| "assign" assignment ";"
 	| "wait" "(" expression ")" statement_or_null
@@ -20,33 +23,36 @@ statement: blocking_assignment ";"
 	| seq_block
 	| if_else_statement
 	| case_statement
-	| "for" "(" assignment ";" expression ";" assignment ")" statement
+	| for_statement
 	| function_call ";"
+	| "(" statement ")"
 
+for_statement: "for" "(" for_condition ")" statement
 
-if_else_statement: "if" "(" expression ")" statement_or_null
-	| "if" "(" expression ")" statement_or_null "else" statement_or_null
+for_condition: assignment ";" expression ";" assignment
 
-case_statement: UNIQUE? CASE "(" expression ")" case_item+ "endcase"
-	| UNIQUE? CASE "(" expression ")" case_item+ "endcase"
-	| UNIQUE? CASE "(" expression ")" case_item+ "endcase"
+if_else_statement: "if" "(" condition ")" statement_or_null
+	| "if" "(" condition ")" statement_or_null "else" statement_or_null
+
+condition: expression
+
+case_statement: UNIQUE? CASE "(" condition ")" case_item+ "endcase"
+	| UNIQUE? CASE "(" condition ")" case_item+ "endcase"
+	| UNIQUE? CASE "(" condition ")" case_item+ "endcase"
 
 assignment: lvalue ASSIGNMENT_OPERATOR expression
 	| lvalue INC_DEC_OPERATOR?
 	| INC_DEC_OPERATOR? lvalue
+	| lvalue "<=" expression -> nonblocking_assignment
 
-blocking_assignment: lvalue "=" expression
+case_item: case_condition statement_or_null
 
-non_blocking_assignment: lvalue "<=" expression
+case_condition: expression ("," expression)* ":"
 
-case_item: expression ("," expression)* ":" statement_or_null
-	| "default" ":" statement_or_null
-	| "default" statement_or_null
+?seq_block: BEGIN statement* END
+	| BEGIN block_identifier statement* END block_identifier?
 
-
-seq_block: "begin" (":" identifier)? statement* "end" (":" identifier)?
-
-name_of_block: IDENTIFIER
+block_identifier: ":" IDENTIFIER
 
 lvalue: identifier
 	| identifier index+  ("." identifier)?
@@ -66,12 +72,19 @@ mintypmax_expression: expression
 expression: primary
 	| UNARY_OPERATOR primary
 	| expression BINARY_OPERATOR expression
-	| expression QUESTION_MARK expression ":" expression
 	| STRING
 	| DEFAULT_BIT
 	| primary "'(" primary ")"
 	| dictionary
 	| MACRO
+	| "default"
+	| "(" expression ")"
+	| tenary_expression
+
+
+tenary_assignment: lvalue ASSIGNMENT_OPERATOR tenary_expression ";"
+	| "assign" lvalue ASSIGNMENT_OPERATOR tenary_expression ";"
+tenary_expression: condition QUESTION_MARK expression ":" expression
 
 primary: NUMBER
 	| identifier
@@ -110,7 +123,7 @@ INC_DEC_OPERATOR: "++" | "--"
 
 UNARY_OPERATOR: "+"| "-"| "!"| "~"| "&"| "~&"| "|"| "^|"| "^"| "~^"
 
-BINARY_OPERATOR: "+"|"-"|"*"|"/"|"%"|"=="|"!="|"==="|"!=="|"&&"|"||"|"<"|"<="|">"|">="|"&"|"|"|"^"|"^~"|">>"|"<<"|">>>"|"<<<"
+BINARY_OPERATOR: "+"|"-"|"*"|"/"|"%"|"=="|"!="|"==="|"!=="|"&&"|"||"|"<"|"<="|">"|">="|"&"|"|"|"^"|"^~"|">>"|"<<"|">>>"|"<<<"|"&&"
 
 ASSIGNMENT_OPERATOR : "="|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>="|"<<<="|">>>="
 
