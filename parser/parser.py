@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from utils import preprocess_always_str, parse_rtl
 from constructor import construct_cdfg_for_always_block
-from cdfg import Cdfg, CdfgNode, CdfgNodePair
+from cdfg import maybe_connect_cdfgs, stringify_cdfg
 
 def get_parser_and_reconstructor(lark_rules):
   parser = Lark.open(lark_rules, maybe_placeholders=False, propagate_positions=True)
@@ -31,9 +31,6 @@ def test_parsing_integrity(parsed_rtl, parser, reconstructor):
         _, always_str = always_block
         _test_parsing_integrity(always_str, parser, reconstructor)
 
-def _reformat_always_for_cdfg(always_str, parser, node_offset=0):
-  return construct_cdfg_for_always_block(always_str, parser, node_offset=node_offset)
-
 def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=None, postfix=None):
   def get_new_filepath(orig_path, write_dir=None, postfix=None):
     assert write_dir or postfix, \
@@ -53,7 +50,8 @@ def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=
     with open(filepath, "r") as f:
       orig_lines = f.readlines()
     orig_lines = [""] + orig_lines # To match the saved line numbers (1-based)
-    reformatted_text = ""
+    non_always_text = []
+    always_cdfgs = []
     print(f"Generting CDFGs from always blocks in '{filepath}'.")
     for module_name, (_, always_blocks) in modules.items():
       cdfgs[filepath][module_name] = []
@@ -68,16 +66,27 @@ def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=
         assert first_line == first_line_actual, \
           f"Line number mismatch: {first_line} (line # {line_num}) != {first_line_actual}"
         # Prepend the lines in between always blocks
-        reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num + 1:line_num])
+        # reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num + 1:line_num])
+        non_always_text.append("".join(orig_lines[prev_line_num + 1:line_num]))
         # Replace the original always block with the reformatted one
-        ret = _reformat_always_for_cdfg(always_str, parser, offset)
+        cdfg = construct_cdfg_for_always_block(always_str, parser, offset)
 
-        reformatted_text = reformatted_text + "\n".join(
-          " " * indent_actual + l for l in ret["cdfg_str"].split("\n")
-        ).rstrip() + "\n" * 2
+        # reformatted_text = reformatted_text + "\n".join(
+        #   " " * indent_actual + l for l in cdfg["cdfg_str"].split("\n")
+        # ).rstrip() + "\n" * 2
         prev_line_num = line_num + len(always_lines) - 1
-        offset += ret["num_nodes"]
-        cdfgs[filepath][module_name].append(ret)
+        offset += cdfg["num_nodes"]
+        cdfgs[filepath][module_name].append(cdfg)
+      # TODO: Add data edges between CDFGs.
+      module_cdfgs = [x["cdfg"] for x in cdfgs[filepath][module_name]]
+      maybe_connect_cdfgs(module_cdfgs)
+      always_cdfgs += module_cdfgs
+    # Replace always blocks in the original file with the reformatted ones
+    reformatted_text = ""
+    assert len(always_cdfgs) == len(non_always_text)
+    for i, cdfg in enumerate(always_cdfgs):
+      reformatted_text += non_always_text[i] + stringify_cdfg(cdfg) + "\n"
+
     # Append the last lines
     reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num + 1:])
     cdfgs[filepath]["text"] = reformatted_text
@@ -86,11 +95,10 @@ def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=
       with open(new_filepath, "w") as f:
         f.write(reformatted_text)
       print(f"Reformatted RTL written to '{new_filepath}'.\n")
-    # TODO: Add data edges between CDFGs.
 
 if __name__ == "__main__":
   parsed_rtl = parse_rtl()
   parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
-  test_parsing_integrity(parsed_rtl, parser, reconstructor)
+  # test_parsing_integrity(parsed_rtl, parser, reconstructor)
   reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=True,
                            write_dir=os.path.join(config.BASE_DIR, "reformatted"))

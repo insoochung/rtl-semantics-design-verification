@@ -1,12 +1,12 @@
 import copy
 from lark.tree import Tree
 
-from utils import preprocess_always_str, get_indent_str, get_partial_str
-from cdfg import Cdfg, CdfgNode, CdfgNodePair
+from utils import preprocess_always_str, get_partial_str
+from cdfg import Cdfg, CdfgNode, CdfgNodePair, connect_nodes, stringify_cdfg
 
 TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 DONT_AGGREGATE_NODES = ["ternary_assignment", "ternary_expression"]
-BRANCH_NODES = ["if_else_statement", "case_statement", "ternary_assignment"]
+BRANCH_NODES = ["if_else_statement", "case_statement", "ternary_expression"]
 PROCEDURAL_NODES = ["seq_block"]
 CONDITION_STATEMENTS = ["if_else_statement", "case_statement", "case_item", "for_statement", "always_statement", "ternary_expression"]
 PROMOTION_REQUIRED = CONDITION_STATEMENTS + ["always_block", "seq_block", "ternary_assignment", "assignment"]
@@ -44,17 +44,7 @@ def is_same_as_only_child(tree):
         return True
   return False
 
-def connect_cdfg(prev, next):
-  prev.append_next_nodes(next)
-  next.append_prev_nodes(prev)
-
-def maybe_promote_empty_node(node):
-  if (node.partial_str.strip() != ""
-      and len(node.prev_nodes) == 1
-      and len(node.next_nodes) == 1):
-    return node
-
-def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
+def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
              terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=TERMINAL_NODES + DONT_AGGREGATE_NODES):
   if not isinstance(lark_tree, Tree):
     return None
@@ -66,7 +56,7 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
   start_pos = m.start_pos
   end_pos = m.end_pos
   init_data = {"full_str": always_str,
-               "partial_str": get_partial_str(always_str, start_pos, end_pos),
+               "statement": get_partial_str(always_str, start_pos, end_pos),
                "lark_tree": lark_tree,
                "lark_meta": m,
                "indent": indent,
@@ -83,7 +73,7 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
 
   if is_same_as_only_child(lark_tree):
     # If the tree is identical to its only child, return the child with type signatures of its ancestors.
-    return get_cdfg(always_str, lark_tree.children[0], indent, prepend_type=lark_tree_type,
+    return get_cdfg_node(always_str, lark_tree.children[0], indent, prepend_type=lark_tree_type,
                     terminal_nodes=terminal_nodes, dont_aggregate_nodes=dont_aggregate_nodes)
 
 
@@ -115,7 +105,7 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
   # Build start node
   start_init_data = copy.deepcopy(init_data)
   start_init_data["end_pos"] = _children[0].meta.start_pos - 1
-  start_init_data["partial_str"] = get_partial_str(always_str, start_init_data["start_pos"], start_init_data["end_pos"])
+  start_init_data["statement"] = get_partial_str(always_str, start_init_data["start_pos"], start_init_data["end_pos"])
 
   # Build children node
   children = []
@@ -126,7 +116,7 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
     terminal_nodes = list(set(terminal_nodes + ["expression"]))
 
   for i, c in enumerate(_children):
-    child = get_cdfg(always_str, c, indent=indent + 2,
+    child = get_cdfg_node(always_str, c, indent=indent + 2,
                      terminal_nodes=terminal_nodes, dont_aggregate_nodes=dont_aggregate_nodes)
     if i > 0:
       children[-1].update_end_pos(max(child.get_start_pos() - 1, children[-1].get_end_pos()))
@@ -137,7 +127,7 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
   # Build end node
   end_init_data = copy.deepcopy(init_data)
   end_init_data["start_pos"] = _children[-1].meta.end_pos + 1
-  end_init_data["partial_str"] = get_partial_str(always_str, end_init_data["start_pos"], end_init_data["end_pos"])
+  end_init_data["statement"] = get_partial_str(always_str, end_init_data["start_pos"], end_init_data["end_pos"])
   end_init_data["type"] += ",end"
   end_node = CdfgNode(end_init_data)
 
@@ -145,37 +135,26 @@ def get_cdfg(always_str, lark_tree, indent=0, prepend_type=None,
   if any(x in lark_tree_type for x in BRANCH_NODES):
     # If the node is a branch node, connect the start and end nodes via a child node.
     for c in children:
-      connect_cdfg(start_node, c)
-      connect_cdfg(c, end_node)
-    connect_cdfg(start_node, end_node) # When no possible condition is met.
+      connect_nodes(start_node, c)
+      connect_nodes(c, end_node)
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
-    connect_cdfg(start_node, children[0])
+    connect_nodes(start_node, children[0])
     for i, c in enumerate(children):
       if i > 0:
-        connect_cdfg(children[i - 1], c)
-    connect_cdfg(children[-1], end_node)
+        connect_nodes(children[i - 1], c)
+    connect_nodes(children[-1], end_node)
 
   return CdfgNodePair(start_node, end_node)
-
-def number_cdfg_nodes(root, node_offset=0):
-  nodes = root.to_list()
-  for i, n in enumerate(nodes):
-    n.set_node_num(i + node_offset)
-  return nodes
-
-def stringify_cdfg(cdfg, node_offset):
-  nodes = number_cdfg_nodes(cdfg, node_offset)
-  return "\n".join(str(n) for n in nodes) + "\n"
 
 def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
                                     check_equivalence=True,
                                     manual_inspection=False):
   always_str_oneline = " ".join(preprocess_always_str(always_str).split())
   lark_root = parser.parse(always_str_oneline)
-  cdfg = get_cdfg(always_str_oneline, lark_root)
+  cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root))
   nodes = cdfg.to_list()
-  connect_cdfg(nodes[-1], nodes[0]) # Connect the last node to the first node.
+  connect_nodes(nodes[-1], nodes[0]) # Connect the last node to the first node.
 
   # Confirm CDFG reconstruction is equivalent to the original always block.
   cdfg_str = stringify_cdfg(cdfg, node_offset=node_offset)
