@@ -7,7 +7,6 @@ from tqdm import tqdm
 
 from utils import preprocess_always_str, parse_rtl
 from constructor import construct_cdfg_for_always_block
-from cdfg import Cdfg, CdfgNode, CdfgNodePair
 
 def get_parser_and_reconstructor(lark_rules):
   parser = Lark.open(lark_rules, maybe_placeholders=False, propagate_positions=True)
