@@ -181,6 +181,7 @@ class Cdfg:
 
   def identify_condition_variables(self):
     self.condition_variables = self._identify_variables("condition")
+    self.condition_variables |= (self._identify_variables("case_condition"))
 
   def __str__(self):
     return stringify_cdfg(self)
