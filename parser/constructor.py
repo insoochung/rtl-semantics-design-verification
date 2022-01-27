@@ -137,6 +137,10 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
     for c in children:
       connect_nodes(start_node, c)
       connect_nodes(c, end_node)
+
+    # TODO: Add check for the connectivity assumption.
+    # This connection scheme assumes that there exists a branch for all cases.
+
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
     connect_nodes(start_node, children[0])
