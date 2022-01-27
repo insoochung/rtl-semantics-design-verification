@@ -31,7 +31,7 @@ def test_parsing_integrity(parsed_rtl, parser, reconstructor):
         _, always_str = always_block
         _test_parsing_integrity(always_str, parser, reconstructor)
 
-def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=None, postfix=None):
+def generate_cdfgs(parsed_rtl, parser, write_to_file=False, write_dir=None, postfix=None):
   def get_new_filepath(orig_path, write_dir=None, postfix=None):
     assert write_dir or postfix, \
       "To get new write path 'write_dir' or 'postfix' should be provided."
@@ -66,26 +66,25 @@ def reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=False, write_dir=
         assert first_line == first_line_actual, \
           f"Line number mismatch: {first_line} (line # {line_num}) != {first_line_actual}"
         # Prepend the lines in between always blocks
-        # reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num + 1:line_num])
-        non_always_text.append("".join(orig_lines[prev_line_num - 1:line_num]))
+
+        non_always_text.append("".join(orig_lines[prev_line_num:line_num]))
         # Replace the original always block with the reformatted one
         cdfg = construct_cdfg_for_always_block(always_str, parser, offset)
         prev_line_num = line_num + len(always_lines)
-        offset += cdfg["num_nodes"]
-        cdfg["indent"] = indent_actual
+        offset += len(cdfg)
         cdfgs[filepath][module_name].append(cdfg)
       # Add data edges between CDFGs.
       module_cdfgs = cdfgs[filepath][module_name]
-      maybe_connect_cdfgs([cdfg["cdfg"] for cdfg in module_cdfgs])
+      maybe_connect_cdfgs(module_cdfgs)
       always_cdfgs += module_cdfgs
 
     # Replace always blocks in the original file with the reformatted ones
     reformatted_text = ""
     assert len(always_cdfgs) == len(non_always_text)
+    # assert 0, non_always_text
     for i, cdfg in enumerate(always_cdfgs):
       reformatted_text += non_always_text[i]
-      reformatted_text += "\n".join(
-        " " * cdfg["indent"] + x for x in stringify_cdfg(cdfg["cdfg"]).split("\n")).rstrip() + "\n"
+      reformatted_text += str(cdfg) + "\n"
     # Append the last lines
     reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num:])
     cdfgs[filepath]["text"] = reformatted_text
@@ -100,5 +99,5 @@ if __name__ == "__main__":
   parsed_rtl = parse_rtl()
   parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
   # test_parsing_integrity(parsed_rtl, parser, reconstructor)
-  reformat_always_for_cdfg(parsed_rtl, parser, write_to_file=True,
-                           write_dir=os.path.join(config.BASE_DIR, "reformatted"))
+  cdfgs = generate_cdfgs(parsed_rtl, parser, write_to_file=True,
+                         write_dir=os.path.join(config.BASE_DIR, "reformatted"))

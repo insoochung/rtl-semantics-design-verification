@@ -150,9 +150,10 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
 def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
                                     check_equivalence=True,
                                     manual_inspection=False):
+  indent = len(always_str) - len(always_str.lstrip())
   always_str_oneline = " ".join(preprocess_always_str(always_str).split())
   lark_root = parser.parse(always_str_oneline)
-  cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root))
+  cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root, indent))
   nodes = cdfg.to_list()
   connect_nodes(nodes[-1], nodes[0]) # Connect the last node to the first node.
 
@@ -170,5 +171,4 @@ def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
             "Proceed to check the correctness of the node information.\n")
     input("Press Enter to continue...")
 
-  ret = {"cdfg": cdfg, "num_nodes": len(nodes), "cdfg_str": cdfg_str}
-  return ret
+  return cdfg

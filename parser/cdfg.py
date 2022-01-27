@@ -7,16 +7,17 @@ def connect_nodes(prev, next):
 def number_cdfg_nodes(root, node_offset=0, force=False):
   nodes = root.to_list()
   for i, n in enumerate(nodes):
-    n.set_node_num(i + node_offset, force=force)
+    n.maybe_set_node_number(i + node_offset, force=force)
   return nodes
 
 def stringify_cdfg(cdfg, node_offset=0):
   nodes = number_cdfg_nodes(cdfg, node_offset, force=False)
-  prefix = "// <ALWAYS_BLOCK> "
+  block_indent = " " * cdfg.get_indent()
+  prefix = block_indent + "// <ALWAYS_BLOCK> "
   prefix += "{" + f"\"condition_variables\": {list(cdfg.condition_variables)}, "
   prefix += f"\"assigned_variables\": {list(cdfg.assigned_variables)}" + "}\n"
   ret = "\n".join(str(n) for n in nodes) + "\n"
-  postfix = "// </ALWAYS_BLOCK>\n"
+  postfix = block_indent + "// </ALWAYS_BLOCK>\n"
   ret = prefix + ret + postfix
   return ret
 
@@ -78,7 +79,7 @@ class CdfgNode:
       ret.extend(node.to_list())
     return ret
 
-  def set_node_num(self, n, force=False):
+  def maybe_set_node_number(self, n, force=False):
     if not hasattr(self, "node_num"):
       self.node_num = n
     elif self.node_num != n:
@@ -151,6 +152,11 @@ class CdfgNodePair:
   def update_end_pos(self, end_pos):
     self.end_node.update_end_pos(end_pos)
 
+  def get_indent(self):
+    assert self.start_node.indent == self.end_node.indent
+    return self.start_node.indent
+
+
 class Cdfg:
   def __init__(self, root: CdfgNodePair):
     self.root = root
@@ -160,6 +166,7 @@ class Cdfg:
     self.identify_condition_variables()
     # Assign root node's methods to self
     self.to_list = self.root.to_list
+    self.get_indent = self.root.get_indent
 
   def _identify_variables(self, node_type):
     lark_root = self.start_node.lark_tree
@@ -176,4 +183,7 @@ class Cdfg:
     self.condition_variables = self._identify_variables("condition")
 
   def __str__(self):
-    return stringify_cdfg(self.root)
+    return stringify_cdfg(self)
+
+  def __len__(self):
+    return len(self.to_list())
