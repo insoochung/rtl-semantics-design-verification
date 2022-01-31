@@ -119,12 +119,6 @@ class CdfgNode(object):
   def update_statement(self):
     self.statement = get_partial_str(self.full_str, self.start_pos, self.end_pos)
 
-  def is_reducible(self):
-    return (self.statement.strip() == ""
-      and "always" not in self.type
-      and len(self.prev_nodes) == 1 and len(self.prev_nodes[0].next_nodes) == 1
-      and len(self.next_nodes) == 1 and len(self.next_nodes[0].prev_nodes) == 1)
-
   def replace_next_node(self, old_node, new_node):
     self.next_nodes.remove(old_node)
     if new_node not in self.next_nodes:
