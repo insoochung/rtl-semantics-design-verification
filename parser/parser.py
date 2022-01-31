@@ -5,7 +5,7 @@ from lark import Lark
 from lark.reconstruct import Reconstructor
 from tqdm import tqdm
 
-from utils import preprocess_always_str, parse_rtl, get_log_fn
+from utils import preprocess_rtl_str, parse_rtl, get_log_fn, assert_rtls_equivalence
 from constructor import construct_cdfg_for_always_block
 from cdfg import maybe_connect_cdfgs
 
@@ -15,7 +15,7 @@ def get_parser_and_reconstructor(lark_rules):
   return parser, reconstructor
 
 def _test_parsing_integrity(always_str, parser, reconstructor):
-  test_str = preprocess_always_str(always_str)
+  test_str = preprocess_rtl_str(always_str)
   root = parser.parse(test_str)
   reduced_always = "".join(test_str.split())
   reconstructed_always = reconstructor.reconstruct(root, insert_spaces=False).replace(" ", "")
@@ -55,7 +55,7 @@ def generate_cdfgs(parsed_rtl, parser, verbose=False):
   log("-- Done: CDFGs generated! --\n")
   return cdfgs
 
-def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_dir=None, postfix=None, verbose=False):
+def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, check_equivalence=True, write_to_file=False, write_dir=None, postfix=None, verbose=False):
   log = get_log_fn(verbose)
   log("-- Start: Reformatting RTL code files given CDFGs... --")
   def _get_new_filepath(orig_path, write_dir=None, postfix=None):
@@ -99,6 +99,8 @@ def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_di
     # Append the last lines
     reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num:])
     ret[filepath] = reformatted_text
+    if check_equivalence:
+      assert_rtls_equivalence("".join(orig_lines), reformatted_text)
     if write_to_file:
       new_filepath = _get_new_filepath(filepath, write_dir=write_dir, postfix=postfix)
       with open(new_filepath, "w") as f:
@@ -107,7 +109,7 @@ def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_di
   log("-- Done: RTL code files reformatted! --\n")
   return ret
 
-def reduce_cdfgs(cdfgs, renumber=False, verbose=False):
+def reduce_cdfgs(cdfgs, renumber=False, check_equivalence=True, verbose=False):
   log = get_log_fn(verbose)
   log("-- Start: Reducing CDFGs... --")
   for filepath, modules in cdfgs.items():
@@ -115,9 +117,12 @@ def reduce_cdfgs(cdfgs, renumber=False, verbose=False):
     for module_name, module_cdfgs in modules.items():
       log(f"Reducing CDFGs of '{module_name}'.")
       for cdfg in module_cdfgs:
+        orig = str(cdfg)
         cdfg.reduce()
         if renumber:
           offset = cdfg.renumber(offset=offset, force=True) + 1
+        if check_equivalence:
+          assert_rtls_equivalence(orig, str(cdfg))
   log("-- Done: CDFGs reduced! --\n")
 
 if __name__ == "__main__":

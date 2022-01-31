@@ -1,7 +1,7 @@
 import copy
 from lark.tree import Tree
 
-from utils import preprocess_always_str, get_partial_str
+from utils import preprocess_rtl_str, get_partial_str, assert_rtls_equivalence
 from cdfg import Cdfg, CdfgNode, CdfgNodePair, connect_nodes, stringify_cdfg
 
 MINIMAL_CANDIDATES = ["statement", "statement_or_null", "case_condition", "always_condition"]
@@ -153,7 +153,7 @@ def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
                                     check_equivalence=True,
                                     manual_inspection=False):
   indent = len(always_str) - len(always_str.lstrip())
-  always_str_oneline = " ".join(preprocess_always_str(always_str).split())
+  always_str_oneline = " ".join(preprocess_rtl_str(always_str).split())
   lark_root = parser.parse(always_str_oneline)
   cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root, indent))
   nodes = cdfg.to_list()
@@ -162,9 +162,7 @@ def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
   # Confirm CDFG reconstruction is equivalent to the original always block.
   cdfg_str = stringify_cdfg(cdfg, node_offset=node_offset)
   if check_equivalence:
-    orig = preprocess_always_str(always_str, no_space=True)
-    comp = preprocess_always_str(cdfg_str, no_space=True)
-    assert orig == comp, f"\n{orig}\n!=\n{comp}\n{always_str}\n!=\n{cdfg_str}"
+    assert_rtls_equivalence(always_str, cdfg_str)
 
   if manual_inspection: # Print to assess manually.
     print(f"\nOriginal:\n{always_str}\nReconstructed:\n{cdfg_str}")

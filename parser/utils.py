@@ -125,7 +125,7 @@ def parse_rtl(rtl_dir=config.IBEX_RTL_DIR, verbose=True):
 def strip_comments(text):
     return re.sub('//.*?\n|/\*.*?\*/', '', text, flags=re.S)
 
-def preprocess_always_str(always_str, no_space=False):
+def preprocess_rtl_str(always_str, no_space=False):
   # 1. Remove comments
   res = strip_comments(always_str)
   # 2. Replace multiple spaces with a single space, but indents are preserved.
@@ -137,6 +137,16 @@ def preprocess_always_str(always_str, no_space=False):
   if no_space:
     res = "".join(res.split())
   return res
+
+def assert_rtls_equivalence(rtl1, rtl2):
+  processed_rtl1 = preprocess_rtl_str(rtl1, no_space=True)
+  processed_rtl2 = preprocess_rtl_str(rtl1, no_space=True)
+  assert processed_rtl1 == processed_rtl2, (
+    f"RTLs equivalence assertion failed\n:"
+    f"RAW\n"
+    f"{rtl1}\n<-NOT EQUAL->\n{rtl2}\n"
+    f"PROCESSED\n"
+    f"{processed_rtl1}\n<-NOT EQUAL->\n{processed_rtl2}")
 
 def get_indent_str(indent):
   return " " * indent
