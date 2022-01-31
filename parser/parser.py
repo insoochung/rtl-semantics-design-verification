@@ -107,18 +107,24 @@ def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_di
   log("-- Done: RTL code files reformatted! --\n")
   return ret
 
-def reduce_cdfgs(cdfgs, verbose=False):
+def reduce_cdfgs(cdfgs, renumber=False, verbose=False):
   log = get_log_fn(verbose)
+  log("-- Start: Reducing CDFGs... --")
   for filepath, modules in cdfgs.items():
+    offset = 0
     for module_name, module_cdfgs in modules.items():
+      log(f"Reducing CDFGs of '{module_name}'.")
       for cdfg in module_cdfgs:
         cdfg.reduce()
+        if renumber:
+          offset = cdfg.renumber(offset=offset, force=True) + 1
+  log("-- Done: CDFGs reduced! --\n")
 
 if __name__ == "__main__":
   parsed_rtl = parse_rtl()
   parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
   # test_parsing_integrity(parsed_rtl, parser, reconstructor, verbose=True)
   cdfgs = generate_cdfgs(parsed_rtl, parser, verbose=True)
-  # reduce_cdfgs(cdfgs, verbose=True)
+  reduce_cdfgs(cdfgs, renumber=True, verbose=True)
   reformat_rtl_based_on_cdfgs(
     parsed_rtl, cdfgs, write_to_file=True, write_dir=config.REFORMATTED_DIR, verbose=True)

@@ -135,6 +135,21 @@ class CdfgNode(object):
     if new_node not in self.prev_nodes:
       self.prev_nodes.append(new_node)
 
+  def is_reducible(self):
+    return (self.statement.strip() == ""
+            and len(self.prev_nodes) == 1 and len(self.next_nodes) == 1)
+
+  def reduce(self, terminal_nodes=[]):
+    if self.is_reducible():
+      prev_node = self.prev_nodes[0]
+      next_node = self.next_nodes[0]
+      prev_node.replace_next_node(self, next_node)
+      next_node.replace_prev_node(self, prev_node)
+
+    for n in self.next_nodes:
+      if n not in terminal_nodes:
+        n.reduce(terminal_nodes)
+
 class CdfgNodePair:
   def __init__(self, start_node, end_node):
     self.start_node = start_node
@@ -168,6 +183,9 @@ class CdfgNodePair:
     assert self.start_node.indent == self.end_node.indent
     return self.start_node.indent
 
+  def reduce(self):
+    self.start_node.reduce([self.end_node])
+
 class Cdfg:
   def __init__(self, root: CdfgNodePair):
     self.root = root
@@ -193,6 +211,13 @@ class Cdfg:
   def identify_condition_variables(self):
     self.condition_variables = self._identify_variables("condition")
     self.condition_variables |= (self._identify_variables("case_condition"))
+
+  def reduce(self):
+    self.root.reduce()
+
+  def renumber(self, offset=0, force=False):
+    last_node_num = number_cdfg_nodes(self, offset, force=force)[-1].node_num
+    return last_node_num
 
   def __str__(self):
     return stringify_cdfg(self)
