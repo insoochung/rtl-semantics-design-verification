@@ -4,15 +4,15 @@ from lark.tree import Tree
 from utils import preprocess_always_str, get_partial_str
 from cdfg import Cdfg, CdfgNode, CdfgNodePair, connect_nodes, stringify_cdfg
 
-TERMINAL_NODES = ["statement", "statement_or_null", "case_condition", "always_condition"]
+MINIMAL_CANDIDATES = ["statement", "statement_or_null", "case_condition", "always_condition"]
 DONT_AGGREGATE_NODES = ["ternary_assignment", "ternary_expression"]
 BRANCH_NODES = ["if_else_statement", "case_statement", "ternary_expression"]
 PROCEDURAL_NODES = ["seq_block"]
 CONDITION_STATEMENTS = ["if_else_statement", "case_statement", "case_item", "for_statement", "always_statement", "ternary_expression"]
 PROMOTION_REQUIRED = CONDITION_STATEMENTS + ["always_block", "seq_block", "ternary_assignment", "assignment"]
 
-def is_terminal(lark_tree, terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=TERMINAL_NODES + DONT_AGGREGATE_NODES):
-  # If there are no Tree children, the node is terminal
+def is_minimal_node(lark_tree, minimal_candidates=MINIMAL_CANDIDATES, dont_aggregate_nodes=MINIMAL_CANDIDATES + DONT_AGGREGATE_NODES):
+  # If there are no Tree children, the node is minimal
   _children = []
   for c in lark_tree.children:
     if isinstance(c, Tree):
@@ -20,11 +20,11 @@ def is_terminal(lark_tree, terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=T
   if not _children:
     return True
 
-  # Check Tree's type to determine if the node should be terminal
-  if lark_tree.data not in terminal_nodes:
+  # Check Tree's type to determine if the node should be minimal
+  if lark_tree.data not in minimal_candidates:
     return False
 
-  # If a tree include these nodes as children, it shouldn't be a terminal node.
+  # If a tree include these nodes as children, it shouldn't be a minimal node.
   for d in dont_aggregate_nodes:
     for c in lark_tree.children:
       if isinstance(c, Tree) and list(c.find_data(d)) != []:
@@ -45,7 +45,7 @@ def is_same_as_only_child(tree):
   return False
 
 def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
-             terminal_nodes=TERMINAL_NODES, dont_aggregate_nodes=TERMINAL_NODES + DONT_AGGREGATE_NODES):
+             minimal_candidates=MINIMAL_CANDIDATES, dont_aggregate_nodes=MINIMAL_CANDIDATES + DONT_AGGREGATE_NODES):
   if not isinstance(lark_tree, Tree):
     return None
   lark_tree_type = lark_tree.data.strip()
@@ -62,19 +62,18 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
                "indent": indent,
                "start_pos": start_pos,
                "end_pos": end_pos,
-               "is_terminal": is_terminal(lark_tree, terminal_nodes=terminal_nodes,
+               "is_minimal_node": is_minimal_node(lark_tree, minimal_candidates=minimal_candidates,
                                           dont_aggregate_nodes=dont_aggregate_nodes),
-               "type": lark_tree_type,
-               "children": [],}
+               "type": lark_tree_type,}
 
-  if init_data["is_terminal"]:
-    # Return a simple node if it's terminal.
+  if init_data["is_minimal_node"]:
+    # Return a simple node if it's minimal.
     return CdfgNode(init_data)
 
   if is_same_as_only_child(lark_tree):
     # If the tree is identical to its only child, return the child with type signatures of its ancestors.
     return get_cdfg_node(always_str, lark_tree.children[0], indent, prepend_type=lark_tree_type,
-                    terminal_nodes=terminal_nodes, dont_aggregate_nodes=dont_aggregate_nodes)
+                    minimal_candidates=minimal_candidates, dont_aggregate_nodes=dont_aggregate_nodes)
 
 
   # Otherwise, construct a pair of start-end nodes with their children.
@@ -110,18 +109,17 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
   # Build children node
   children = []
   if "assignment" in lark_tree_type:
-    # Usually, assignments are too fine-grained to be a single node.
+    # Usually, assignments are too fine-grained to be a minimal node.
     # However, when assignments involve ternary expressions, identified nodes
     # should be finer grained than statements (from here and on in deeper recursions.
-    terminal_nodes = list(set(terminal_nodes + ["expression"]))
+    minimal_candidates = list(set(minimal_candidates + ["expression"]))
 
   for i, c in enumerate(_children):
     child = get_cdfg_node(always_str, c, indent=indent + 2,
-                     terminal_nodes=terminal_nodes, dont_aggregate_nodes=dont_aggregate_nodes)
+                     minimal_candidates=minimal_candidates, dont_aggregate_nodes=dont_aggregate_nodes)
     if i > 0:
       children[-1].update_end_pos(max(child.get_start_pos() - 1, children[-1].get_end_pos()))
     children.append(child)
-  start_init_data["children"] = children
   start_node = CdfgNode(start_init_data)
 
   # Build end node
@@ -137,6 +135,10 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
     for c in children:
       connect_nodes(start_node, c)
       connect_nodes(c, end_node)
+
+    # TODO: Add check for the connectivity assumption.
+    # This connection scheme assumes that there exists a branch for all cases.
+
   else:
     # If the node is a procedural node, start - child0 - child1 - ... - end.
     connect_nodes(start_node, children[0])
@@ -150,9 +152,10 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
 def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
                                     check_equivalence=True,
                                     manual_inspection=False):
+  indent = len(always_str) - len(always_str.lstrip())
   always_str_oneline = " ".join(preprocess_always_str(always_str).split())
   lark_root = parser.parse(always_str_oneline)
-  cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root))
+  cdfg = Cdfg(get_cdfg_node(always_str_oneline, lark_root, indent))
   nodes = cdfg.to_list()
   connect_nodes(nodes[-1], nodes[0]) # Connect the last node to the first node.
 
@@ -170,5 +173,4 @@ def construct_cdfg_for_always_block(always_str, parser, node_offset=0,
             "Proceed to check the correctness of the node information.\n")
     input("Press Enter to continue...")
 
-  ret = {"cdfg": cdfg, "num_nodes": len(nodes), "cdfg_str": cdfg_str}
-  return ret
+  return cdfg
