@@ -5,9 +5,9 @@ from lark import Lark
 from lark.reconstruct import Reconstructor
 from tqdm import tqdm
 
-from utils import preprocess_always_str, parse_rtl
+from utils import preprocess_always_str, parse_rtl, get_log_fn
 from constructor import construct_cdfg_for_always_block
-from cdfg import maybe_connect_cdfgs, stringify_cdfg
+from cdfg import maybe_connect_cdfgs
 
 def get_parser_and_reconstructor(lark_rules):
   parser = Lark.open(lark_rules, maybe_placeholders=False, propagate_positions=True)
@@ -23,19 +23,24 @@ def _test_parsing_integrity(always_str, parser, reconstructor):
     "Reduced and reconstructed always blocks are not the same. \n{}\n{}".format(
       reduced_always, reconstructed_always)
 
-def test_parsing_integrity(parsed_rtl, parser, reconstructor):
+def test_parsing_integrity(parsed_rtl, parser, reconstructor, verbose=False):
+  log = get_log_fn(verbose)
+  log("-- Start: Testing parsing integrity... --")
   for filepath, modules in parsed_rtl.items():
     for module_name, (line_num, always_blocks) in modules.items():
-      print(f"Parsing always blocks in '{module_name}' to check reconstruction integrity.")
+      log(f"Parsing always blocks in '{module_name}' to check reconstruction integrity.")
       for always_block in tqdm(always_blocks):
         _, always_str = always_block
         _test_parsing_integrity(always_str, parser, reconstructor)
+  log("-- Done: Parsing integrity verified! --\n")
 
-def generate_cdfgs(parsed_rtl, parser):
+def generate_cdfgs(parsed_rtl, parser, verbose=False):
+  log = get_log_fn(verbose)
+  log("-- Start: Generating CDFGs from always block strings... --")
   cdfgs = {}
   for filepath, modules in parsed_rtl.items():
     cdfgs[filepath] = {}
-    print(f"Generting CDFGs from always blocks in '{filepath}'.")
+    log(f"Generting CDFGs from always blocks in '{filepath}'.")
     offset = 0
     for module_name, (_, always_blocks) in modules.items():
       cdfgs[filepath][module_name] = []
@@ -47,10 +52,12 @@ def generate_cdfgs(parsed_rtl, parser):
       # Add data edges between CDFGs.
       module_cdfgs = cdfgs[filepath][module_name]
       maybe_connect_cdfgs(module_cdfgs)
-
+  log("-- Done: CDFGs generated! --\n")
   return cdfgs
 
-def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_dir=None, postfix=None):
+def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_dir=None, postfix=None, verbose=False):
+  log = get_log_fn(verbose)
+  log("-- Start: Reformatting RTL code files given CDFGs... --")
   def _get_new_filepath(orig_path, write_dir=None, postfix=None):
     assert write_dir or postfix, \
       "To get new write path 'write_dir' or 'postfix' should be provided."
@@ -68,7 +75,6 @@ def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_di
     orig_lines = [""] + orig_lines # To match the saved line numbers (1-based)
     non_always_text = []
     always_cdfgs = []
-    print(f"Reformatting from always blocks in '{filepath}'.")
     for module_name, (_, always_blocks) in modules.items():
       module_cdfgs = cdfgs[filepath][module_name]
       for cdfg, always_block in zip(module_cdfgs, always_blocks):
@@ -97,15 +103,22 @@ def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, write_to_file=False, write_di
       new_filepath = _get_new_filepath(filepath, write_dir=write_dir, postfix=postfix)
       with open(new_filepath, "w") as f:
         f.write(reformatted_text)
-      print(f"Reformatted RTL written to '{new_filepath}'.\n")
-
+      log(f"Reformatted RTL written to '{new_filepath}'.")
+  log("-- Done: RTL code files reformatted! --\n")
   return ret
 
+def reduce_cdfgs(cdfgs, verbose=False):
+  log = get_log_fn(verbose)
+  for filepath, modules in cdfgs.items():
+    for module_name, module_cdfgs in modules.items():
+      for cdfg in module_cdfgs:
+        cdfg.reduce()
 
 if __name__ == "__main__":
   parsed_rtl = parse_rtl()
   parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
-  test_parsing_integrity(parsed_rtl, parser, reconstructor)
-  cdfgs = generate_cdfgs(parsed_rtl, parser)
+  # test_parsing_integrity(parsed_rtl, parser, reconstructor, verbose=True)
+  cdfgs = generate_cdfgs(parsed_rtl, parser, verbose=True)
+  reduce_cdfgs(cdfgs, verbose=True)
   reformat_rtl_based_on_cdfgs(
-    parsed_rtl, cdfgs, write_to_file=True, write_dir=config.REFORMATTED_DIR)
+    parsed_rtl, cdfgs, write_to_file=True, write_dir=config.REFORMATTED_DIR, verbose=True)

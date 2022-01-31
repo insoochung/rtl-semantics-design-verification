@@ -42,7 +42,7 @@ class CdfgNode:
   - indent (int): Indent size.
   - start_pos (int): Start position of the statement within full str.
   - end_pos (int): End position of the statement within full str.
-  - is_terminal (bool): Whether this is a terminal node.
+  - is_minimal_node (bool): Whether this is a minimal node (no subtrees).
   - type (str): A string stating the type of this node,
   - children (List[lark.Tree]): List of children.}
   """
@@ -118,10 +118,12 @@ class CdfgNode:
   def replace_next_node(self, old_node, new_node):
     self.next_nodes.remove(old_node)
     self.next_nodes.append(new_node)
+    self.next_nodes = list(set(self.next_nodes))
 
   def replace_prev_node(self, old_node, new_node):
     self.prev_nodes.remove(old_node)
     self.prev_nodes.append(new_node)
+    self.prev_nodes = list(set(self.prev_nodes))
 
 class CdfgNodePair:
   def __init__(self, start_node, end_node):
@@ -155,7 +157,6 @@ class CdfgNodePair:
   def get_indent(self):
     assert self.start_node.indent == self.end_node.indent
     return self.start_node.indent
-
 
 class Cdfg:
   def __init__(self, root: CdfgNodePair):

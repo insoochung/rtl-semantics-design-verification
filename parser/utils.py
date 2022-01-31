@@ -4,6 +4,14 @@ from glob import glob
 
 import config
 
+def get_log_fn(verbose=True):
+  def log_fn(str=""):
+    pass
+  if verbose:
+    log_fn = print
+
+  return log_fn
+
 def has_token(line, token):
   return token in line.split("//")[0].split() # comment is not taken into account
 
