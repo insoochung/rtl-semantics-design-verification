@@ -33,7 +33,7 @@ def maybe_connect_cdfgs(cdfgs):
     for cdfg_b in cdfgs[i + 1:]:
       _maybe_connect_cdfgs(cdfg_a, cdfg_b)
 
-class CdfgNode:
+class CdfgNode(object):
   """ Member attributes:
   - full_str (str): Always string from which this node is formed.
   - statement (str): Statement corresponding to this node.
@@ -73,10 +73,17 @@ class CdfgNode:
     else:
       assert False, f"{next_node} is not a CdfgNode or CdfgNodePair"
 
-  def to_list(self):
+  def to_list(self, terminal_nodes=[]):
     ret = [self]
-    for node in self.children:
-      ret.extend(node.to_list())
+    for n in self.next_nodes:
+      if n.indent > self.indent and n not in terminal_nodes:
+        ret.extend(n.to_list())
+        while (len(ret[-1].next_nodes) == 1 and
+               ret[-1].next_nodes[0].indent > self.indent):
+          next_n = ret[-1].next_nodes[0]
+          if next_n in terminal_nodes:
+            break
+          ret.extend(next_n.to_list())
     return ret
 
   def maybe_set_node_number(self, n, force=False):
@@ -87,15 +94,18 @@ class CdfgNode:
         self.node_num = n
         print("node_num is overwritten: {self.node_num}->{n}")
 
+  def get_node_num(self):
+    return self.__getattribute__("node_num")
+
   def __str__(self):
     return (f"{get_indent_str(self.indent)}{self.statement} "
             "// {"
-            f"\"node_num\": {self.node_num}, "
+            f"\"node_num\": {self.get_node_num()}, "
             f"\"type\": \"{self.type}\", "
             # f"\"start_pos\": {self.start_pos}, "
             # f"\"end_pos\": {self.end_pos}, "
-            f"\"prev_nodes\": {[x.node_num for x in self.prev_nodes]}, "
-            f"\"next_nodes\": {[x.node_num for x in self.next_nodes]}"
+            f"\"prev_nodes\": {[x.get_node_num() for x in self.prev_nodes]}, "
+            f"\"next_nodes\": {[x.get_node_num() for x in self.next_nodes]}"
             "}")
 
   def update_start_pos(self, start_pos):
@@ -117,13 +127,13 @@ class CdfgNode:
 
   def replace_next_node(self, old_node, new_node):
     self.next_nodes.remove(old_node)
-    self.next_nodes.append(new_node)
-    self.next_nodes = list(set(self.next_nodes))
+    if new_node not in self.next_nodes:
+      self.next_nodes.append(new_node)
 
   def replace_prev_node(self, old_node, new_node):
     self.prev_nodes.remove(old_node)
-    self.prev_nodes.append(new_node)
-    self.prev_nodes = list(set(self.prev_nodes))
+    if new_node not in self.prev_nodes:
+      self.prev_nodes.append(new_node)
 
 class CdfgNodePair:
   def __init__(self, start_node, end_node):
@@ -140,7 +150,7 @@ class CdfgNodePair:
     self.end_node.append_next_nodes(next_node)
 
   def to_list(self):
-    return self.start_node.to_list() + self.end_node.to_list()
+    return self.start_node.to_list(terminal_nodes=[self.end_node]) + [self.end_node]
 
   def get_start_pos(self):
     return self.start_node.start_pos

@@ -64,8 +64,7 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
                "end_pos": end_pos,
                "is_minimal_node": is_minimal_node(lark_tree, minimal_candidates=minimal_candidates,
                                           dont_aggregate_nodes=dont_aggregate_nodes),
-               "type": lark_tree_type,
-               "children": [],}
+               "type": lark_tree_type,}
 
   if init_data["is_minimal_node"]:
     # Return a simple node if it's minimal.
@@ -121,7 +120,6 @@ def get_cdfg_node(always_str, lark_tree, indent=0, prepend_type=None,
     if i > 0:
       children[-1].update_end_pos(max(child.get_start_pos() - 1, children[-1].get_end_pos()))
     children.append(child)
-  start_init_data["children"] = children
   start_node = CdfgNode(start_init_data)
 
   # Build end node

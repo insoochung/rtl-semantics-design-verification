@@ -119,6 +119,6 @@ if __name__ == "__main__":
   parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
   # test_parsing_integrity(parsed_rtl, parser, reconstructor, verbose=True)
   cdfgs = generate_cdfgs(parsed_rtl, parser, verbose=True)
-  reduce_cdfgs(cdfgs, verbose=True)
+  # reduce_cdfgs(cdfgs, verbose=True)
   reformat_rtl_based_on_cdfgs(
     parsed_rtl, cdfgs, write_to_file=True, write_dir=config.REFORMATTED_DIR, verbose=True)
