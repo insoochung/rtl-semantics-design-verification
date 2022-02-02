@@ -119,26 +119,38 @@ class CdfgNode(object):
   def update_statement(self):
     self.statement = get_partial_str(self.full_str, self.start_pos, self.end_pos)
 
-  def replace_next_node(self, old_node, new_node):
+  def replace_next_node(self, old_node, new_nodes):
     self.next_nodes.remove(old_node)
-    if new_node not in self.next_nodes:
-      self.next_nodes.append(new_node)
+    if not isinstance(new_nodes, list):
+      new_nodes = [new_nodes]
+    for new_node in new_nodes:
+      if new_node not in self.next_nodes:
+        self.next_nodes.append(new_node)
 
-  def replace_prev_node(self, old_node, new_node):
+  def replace_prev_node(self, old_node, new_nodes):
     self.prev_nodes.remove(old_node)
-    if new_node not in self.prev_nodes:
-      self.prev_nodes.append(new_node)
+    if not isinstance(new_nodes, list):
+      new_nodes = [new_nodes]
+    for new_node in new_nodes:
+      if new_node not in self.prev_nodes:
+        self.prev_nodes.append(new_node)
 
   def is_reducible(self):
     return (self.statement.strip() == ""
-            and len(self.prev_nodes) == 1 and len(self.next_nodes) == 1)
+            and (len(self.prev_nodes) == 1
+                or "end" in self.type.split(","))
+            and len(self.next_nodes) == 1)
 
   def reduce(self, terminal_nodes=[]):
     if self.is_reducible():
-      prev_node = self.prev_nodes[0]
+      # If self is an emtpy node, remove it from the graph.
+      assert len(self.next_nodes) == 1, (
+        f"self.next_nodes should be 1, but is {len(self.next_nodes)}\n"
+        f"self:{str(self)}")
       next_node = self.next_nodes[0]
-      prev_node.replace_next_node(self, next_node)
-      next_node.replace_prev_node(self, prev_node)
+      for prev_node in self.prev_nodes:
+        prev_node.replace_next_node(self, next_node)
+      next_node.replace_prev_node(self, self.prev_nodes)
 
     for n in self.next_nodes:
       if n not in terminal_nodes:
