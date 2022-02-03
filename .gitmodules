@@ -1,3 +1,6 @@
 [submodule "ibex"]
 	path = ibex
 	url = https://github.com/lowRISC/ibex.git
+[submodule "parser/verible"]
+	path = parser/verible
+	url = https://github.com/chipsalliance/verible
