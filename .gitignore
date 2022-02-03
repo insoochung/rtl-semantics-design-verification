@@ -1,2 +1,4 @@
 __pycache__/
 reformatted/
+parser/parsed_rtl/*.tree
+parser/parsed_rtl/*.json

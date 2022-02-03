@@ -1,135 +1,56 @@
-import config
 import os
+import json
 
-from lark import Lark
-from lark.reconstruct import Reconstructor
-from tqdm import tqdm
+from zipfile import ZipFile
+from glob import glob
 
-from utils import preprocess_rtl_str, parse_rtl, get_log_fn, assert_rtls_equivalence
-from constructor import construct_cdfg_for_always_block
-from cdfg import maybe_connect_cdfgs
+import config
+from utils import get_log_fn
 
-def get_parser_and_reconstructor(lark_rules):
-  parser = Lark.open(lark_rules, maybe_placeholders=False, propagate_positions=True)
-  reconstructor = Reconstructor(parser)
-  return parser, reconstructor
+def get_verible_parsed_rtl(parsed_dir=config.PARSED_RTL_DIR,
+                           orig_dir=None,
+                           verbose=True):
+  """Return a list parsed verible json files each read as a dict
 
-def _test_parsing_integrity(always_str, parser, reconstructor):
-  test_str = preprocess_rtl_str(always_str)
-  root = parser.parse(test_str)
-  reduced_always = "".join(test_str.split())
-  reconstructed_always = reconstructor.reconstruct(root, insert_spaces=False).replace(" ", "")
-  assert reduced_always == reconstructed_always, \
-    "Reduced and reconstructed always blocks are not the same. \n{}\n{}".format(
-      reduced_always, reconstructed_always)
+  This reads the verible json files in the parsed_dir.
+  Keyword arguments:
+  parsed_dir -- the directory where the parsed RTL files are stored.
+  orig_dir -- the directory where the original RTL files are stored, this will
+    override the directory specified in the json file.
+  verbose -- whether to print to stdout.
+  """
+  log_fn = get_log_fn(verbose)
 
-def test_parsing_integrity(parsed_rtl, parser, reconstructor, verbose=False):
-  log = get_log_fn(verbose)
-  log("-- Start: Testing parsing integrity... --")
-  for filepath, modules in parsed_rtl.items():
-    for module_name, (line_num, always_blocks) in modules.items():
-      log(f"Parsing always blocks in '{module_name}' to check reconstruction integrity.")
-      for always_block in tqdm(always_blocks):
-        _, always_str = always_block
-        _test_parsing_integrity(always_str, parser, reconstructor)
-  log("-- Done: Parsing integrity verified! --\n")
+  log_fn(f"-- Start: attempting to parse files in {parsed_dir} --")
+  json_files = glob(f"{parsed_dir}/*.json")
+  if len(json_files) == 0:
+    zip = glob(f"{parsed_dir}/*.zip")
+    log_fn(f"No json files found in {parsed_dir}, attempting to unzip {zip}")
+    assert len(zip) == 1, (
+      f"Only one zip file should be present: {zip}")
+    zip = zip[0]
+    with ZipFile(zip, "r") as z:
+      z.extractall(parsed_dir)
+    json_files = glob(f"{parsed_dir}/*.json")
 
-def generate_cdfgs(parsed_rtl, parser, verbose=False):
-  log = get_log_fn(verbose)
-  log("-- Start: Generating CDFGs from always block strings... --")
-  cdfgs = {}
-  for filepath, modules in parsed_rtl.items():
-    cdfgs[filepath] = {}
-    log(f"Generting CDFGs from always blocks in '{filepath}'.")
-    offset = 0
-    for module_name, (_, always_blocks) in modules.items():
-      cdfgs[filepath][module_name] = []
-      for _, always_str in tqdm(always_blocks):
-        # Replace the original always block with the reformatted one
-        cdfg = construct_cdfg_for_always_block(always_str, parser, offset)
-        offset += len(cdfg)
-        cdfgs[filepath][module_name].append(cdfg)
-      # Add data edges between CDFGs.
-      module_cdfgs = cdfgs[filepath][module_name]
-      maybe_connect_cdfgs(module_cdfgs)
-  log("-- Done: CDFGs generated! --\n")
-  return cdfgs
+  assert len(json_files) > 0, f"Still, no json files found in {parsed_dir}"
+  res = {}
+  for json_filepath in json_files:
+    with open(json_filepath, "r") as file:
+      log_fn(f"Reading {json_filepath}")
+      j = json.load(file)
+      assert len(j.keys()) == 1, (
+        f"Only one root key of path to original RTL file should be present: "
+        f"{j.keys()}")
+      key = list(j.keys())[0]
+      orig_filepath = key
+      if orig_dir is not None:
+        orig_filepath = os.path.join(orig_dir, os.path.basename(key))
+        log_fn(f"Original filepath overridden: {key} -> {orig_filepath}")
+      res[orig_filepath] = j[key]
+  log_fn(f"-- End: files parsed in {parsed_dir} --")
 
-def reformat_rtl_based_on_cdfgs(parsed_rtl, cdfgs, check_equivalence=True, write_to_file=False, write_dir=None, postfix=None, verbose=False):
-  log = get_log_fn(verbose)
-  log("-- Start: Reformatting RTL code files given CDFGs... --")
-  def _get_new_filepath(orig_path, write_dir=None, postfix=None):
-    assert write_dir or postfix, \
-      "To get new write path 'write_dir' or 'postfix' should be provided."
-    if write_dir:
-      os.makedirs(write_dir, exist_ok=True)
-      return os.path.join(write_dir, os.path.basename(orig_path))
-    else: # postfix
-      return orig_path + postfix
-
-  ret = {}
-  for filepath, modules in parsed_rtl.items():
-    prev_line_num = 0
-    with open(filepath, "r") as f:
-      orig_lines = f.readlines()
-    orig_lines = [""] + orig_lines # To match the saved line numbers (1-based)
-    non_always_text = []
-    always_cdfgs = []
-    for module_name, (_, always_blocks) in modules.items():
-      module_cdfgs = cdfgs[filepath][module_name]
-      for cdfg, always_block in zip(module_cdfgs, always_blocks):
-        line_num, always_str = always_block
-        always_lines = always_str.split("\n")
-        # Check if the line number is correct
-        first_line = always_lines[0].strip()
-        first_line_actual = orig_lines[line_num].strip()
-        assert first_line == first_line_actual, \
-          f"Line number mismatch: {first_line} (line # {line_num}) != {first_line_actual}"
-        # Prepend the lines in between always blocks
-        non_always_text.append("".join(orig_lines[prev_line_num:line_num]))
-        prev_line_num = line_num + len(always_lines)
-      always_cdfgs += module_cdfgs
-
-    # Replace always blocks in the original file with the reformatted ones
-    reformatted_text = ""
-    assert len(always_cdfgs) == len(non_always_text)
-    for i, cdfg in enumerate(always_cdfgs):
-      reformatted_text += non_always_text[i]
-      reformatted_text += str(cdfg) + "\n"
-    # Append the last lines
-    reformatted_text = reformatted_text + "".join(orig_lines[prev_line_num:])
-    ret[filepath] = reformatted_text
-    if check_equivalence:
-      assert_rtls_equivalence("".join(orig_lines), reformatted_text)
-    if write_to_file:
-      new_filepath = _get_new_filepath(filepath, write_dir=write_dir, postfix=postfix)
-      with open(new_filepath, "w") as f:
-        f.write(reformatted_text)
-      log(f"Reformatted RTL written to '{new_filepath}'.")
-  log("-- Done: RTL code files reformatted! --\n")
-  return ret
-
-def reduce_cdfgs(cdfgs, renumber=False, check_equivalence=True, verbose=False):
-  log = get_log_fn(verbose)
-  log("-- Start: Reducing CDFGs... --")
-  for filepath, modules in cdfgs.items():
-    offset = 0
-    for module_name, module_cdfgs in modules.items():
-      log(f"Reducing CDFGs of '{module_name}'.")
-      for cdfg in module_cdfgs:
-        orig = str(cdfg)
-        cdfg.reduce()
-        if renumber:
-          offset = cdfg.renumber(offset=offset, force=True) + 1
-        if check_equivalence:
-          assert_rtls_equivalence(orig, str(cdfg))
-  log("-- Done: CDFGs reduced! --\n")
+  return res
 
 if __name__ == "__main__":
-  parsed_rtl = parse_rtl()
-  parser, reconstructor = get_parser_and_reconstructor(config.ALWAYS_BLOCK_RULES)
-  # test_parsing_integrity(parsed_rtl, parser, reconstructor, verbose=True)
-  cdfgs = generate_cdfgs(parsed_rtl, parser, verbose=True)
-  reduce_cdfgs(cdfgs, renumber=True, verbose=True)
-  reformat_rtl_based_on_cdfgs(
-    parsed_rtl, cdfgs, write_to_file=True, write_dir=config.REFORMATTED_DIR, verbose=True)
+  parsed_rtl = get_verible_parsed_rtl()
