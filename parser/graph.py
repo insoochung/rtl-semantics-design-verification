@@ -1,9 +1,6 @@
-import os
-import json
-from enum import Enum
 from typing import List
 
-from utils import get_indent_str
+from utils import get_indent_str, preprocess_rtl_str
 
 
 class Tag:
@@ -110,10 +107,12 @@ def connect_nodes(node: "Node", next_node: "Node",
   #   del node
   # node.add_next_node(next_node, condition)
   next_node.add_prev_node(node)
+  node.add_next_node(next_node)
 
 
 def construct_assignment(verible_tree: dict, rtl_content: str,
-                         ignore_inner_branches: bool = False):
+                         ignore_inner_branches: bool = False,
+                         block_depth: int = 0):
   """Construct assignments from the verible tree."""
   tag = verible_tree["tag"]
   assert ignore_inner_branches or tag in Tag.ASSIGNMENTS, (
@@ -124,12 +123,12 @@ def construct_assignment(verible_tree: dict, rtl_content: str,
     return None
     # assert 0, f"{tag} has branchs: {[b['tag'] for b in branchs]}"
   # Handle assignment without conditional statements.
-  node = Node(verible_tree, rtl_content)
-  print(node)
+  node = Node(verible_tree, rtl_content, block_depth=block_depth)
   return node
 
 
-def construct_seq_block(verible_tree: dict, rtl_content: str):
+def construct_seq_block(verible_tree: dict, rtl_content: str,
+                        block_depth: int = 0):
   """Construct a series of nodes for a sequence block."""
   assert verible_tree["tag"] == Tag.SEQ_BLOCK
   # print_tags(verible_tree)
@@ -152,21 +151,25 @@ def construct_seq_block(verible_tree: dict, rtl_content: str):
       # TODO: handle if statements correctly
       nodes.append(
           construct_assignment(statement, rtl_content,
-                               ignore_inner_branches=True))
+                               ignore_inner_branches=True,
+                               block_depth=block_depth))
     elif tag == Tag.CASE_STATEMENT:
       # TODO: handle case statements correctly
       nodes.append(
           construct_assignment(statement, rtl_content,
-                               ignore_inner_branches=True))
+                               ignore_inner_branches=True,
+                               block_depth=block_depth))
     elif tag == Tag.FOR_LOOP_STATEMENT:
       # TODO: need to decide how to handle for loops with if statements inside
       nodes.append(
           construct_assignment(statement, rtl_content,
-                               ignore_inner_branches=True))
+                               ignore_inner_branches=True,
+                               block_depth=block_depth))
     elif tag in Tag.ASSIGNMENTS:
       nodes.append(
           construct_assignment(statement, rtl_content,
-                               ignore_inner_branches=True))
+                               ignore_inner_branches=True,
+                               block_depth=block_depth))
     else:
       assert False, "Unsupported statement in sequence block."
 
@@ -243,9 +246,12 @@ class Node:
   is_end -- whether the node is the end of a block (bool)
   prev_nodes -- a list of previous nodes (List(Node))
   next_nodes -- a list of next node, condition pairs (List(Node, str))
+  block_depth -- the depth of the block the node is in (int)
+  end_node -- the end node of the block, exists only if this is a start node
+              of a block (Node)
   """
 
-  def __init__(self, verible_tree: dict = None, rtl_content: str = ""):
+  def __init__(self, verible_tree: dict = None, rtl_content: str = "", block_depth: int = 0):
     self.rtl_content = rtl_content
     self.verible_tree = verible_tree
     self.start, self.end = -1, -1
@@ -255,10 +261,15 @@ class Node:
     self.is_end = False
     self.prev_nodes = []
     self.next_nodes = []
+    self.block_depth = block_depth
+    self.end_node = None
     self.construct_node()
 
   def __str__(self):
-    return f"({self.type}): {' '.join(self.text.split())}"
+    return f"({self.type}): {self.get_one_line_str()}"
+
+  def get_one_line_str(self):
+    return preprocess_rtl_str(self.text, one_line=True)
 
   def update_text_and_type(self):
     """Update the text and type of the node."""
@@ -285,7 +296,7 @@ class Node:
       assert cond != next_condition, (
           f"Node already has a next node with condition '{next_condition}' "
           f"leading to {n}.")
-    self.next_nodes.append(next_node, next_condition)
+    self.next_nodes.append((next_node, next_condition))
 
   def add_prev_node(self, prev_node: "Node"):
     """Add a previous node to the node.
@@ -306,6 +317,30 @@ class Node:
   def remove_prev_node(self, prev_node: "Node"):
     """Remove a previous node"""
     self.prev_nodes.remove(prev_node)
+
+  def to_list(self):
+    ret = [self]
+    for n, _ in self.next_nodes:
+      if n.block_depth > self.block_depth and n != self.end_node:
+        ret.extend(n.to_list())
+        while (len(ret[-1].next_nodes) == 1
+               and ret[-1].next_nodes[0][0].block_depth >= self.block_depth):
+          next_n, _ = ret[-1].next_nodes[0]
+          if next_n == self.end_node:
+            break
+          ret.extend(next_n.to_list())
+
+    if self.end_node:
+      ret.extend(self.end_node.to_list())
+    return ret
+
+
+class EndNode(Node):
+  """Node class that specifies an arbitrary end"""
+
+  def construct_node(self):
+    self.is_end = True
+    self.type = "end"
 
 
 class AlwaysNode(Node):
@@ -334,22 +369,20 @@ class AlwaysNode(Node):
           f"Unknown '{self.type}' type.")
       seq_block = children[1]
     assert seq_block["tag"] == Tag.SEQ_BLOCK
-    nodes = construct_seq_block(seq_block, self.rtl_content)
+    nodes = construct_seq_block(
+        seq_block, self.rtl_content, block_depth=self.block_depth + 1)
     assert nodes, "Seq block is empty."
-    self.end_node = EndNode()  # Arbitrary end node.
+    # Arbitrary end node.
+    self.end_node = EndNode(block_depth=self.block_depth)
     connect_nodes(self, nodes[0])
     connect_nodes(nodes[-1], self.end_node)
+    self.print_graph()
 
-  def print_graph(self, indent=0):
+  def print_graph(self):
     """Print the graph of the always block."""
-    print(f"{self.type} {self.condition}")
-    for node in self.next_nodes.values():
-      print(f"{node}")
-
-
-class EndNode(Node):
-  """Node class that specifies an arbitrary end"""
-
-  def construct_node(self):
-    self.is_end = True
-    self.type = "end"
+    l = self.to_list()
+    print("----")
+    for n in l:
+      print(get_indent_str(n.block_depth * 2) + n.type + " -> " +
+            ("" if n.end_node else n.get_one_line_str()))
+    print("----")
