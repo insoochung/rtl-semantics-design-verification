@@ -102,13 +102,13 @@ def connect_nodes(node: "Node", next_node: "Node",
                   condition=Condition.DEFAULT):
   """Connect two nodes."""
   # TODO: test merging
-  if node.is_end and next_node.is_end and condition == Condition.DEFAULT:
-    # If both nodes are arbitrary end nodes, merge them together.
-    for p in node.prev_nodes:
-      cond = p.remove_next_node(node)
-      p.add_next_node(next_node, cond)
-    del node
-  node.add_next_node(next_node, condition)
+  # if node.is_end and next_node.is_end and condition == Condition.DEFAULT:
+  #   # If both nodes are arbitrary end nodes, merge them together.
+  #   for p in node.prev_nodes:
+  #     cond = p.remove_next_node(node)
+  #     p.add_next_node(next_node, cond)
+  #   del node
+  # node.add_next_node(next_node, condition)
   next_node.add_prev_node(node)
 
 
@@ -241,8 +241,8 @@ class Node:
   type -- the type of the node (str)
   condition -- the condition of the node, only for branch nodes (str)
   is_end -- whether the node is the end of a block (bool)
-  prev_nodes -- a set of previous nodes (Set(Node))
-  next_nodes -- a dict of next nodes, key specifies condition (Dict(str, Node))
+  prev_nodes -- a list of previous nodes (List(Node))
+  next_nodes -- a list of next node, condition pairs (List(Node, str))
   """
 
   def __init__(self, verible_tree: dict = None, rtl_content: str = ""):
@@ -253,8 +253,8 @@ class Node:
     self.type = ""
     self.condition = ""
     self.is_end = False
-    self.prev_nodes = set()
-    self.next_nodes = dict()
+    self.prev_nodes = []
+    self.next_nodes = []
     self.construct_node()
 
   def __str__(self):
@@ -281,23 +281,27 @@ class Node:
     Keyword arguments:
     next_condition -- the condition of the next node (str)
     """
-    assert self.next_nodes.get(next_condition) is None, (
-        f"Node already has a next node with condition '{next_condition}' "
-        f"leading to {self.next_nodes[next_condition]}.")
-    self.next_nodes[next_condition] = next_node
+    for n, cond in self.next_nodes:
+      assert cond != next_condition, (
+          f"Node already has a next node with condition '{next_condition}' "
+          f"leading to {n}.")
+    self.next_nodes.append(next_node, next_condition)
 
   def add_prev_node(self, prev_node: "Node"):
     """Add a previous node to the node.
     """
     if prev_node not in self.prev_nodes:
-      self.prev_nodes.add(prev_node)
+      self.prev_nodes.append(prev_node)
 
   def remove_next_node(self, next_node: "Node"):
     """Remove a next node, and return the condition of the removed node"""
-    for cond, node in self.next_nodes.items():
+    idx = -1
+    for i, (node, cond) in enumerate(self.next_nodes):
       if node == next_node:
-        del self.next_nodes[cond]
-        return cond
+        idx = i
+        break
+    assert idx > i, f"Node '{next_node}' not found in next_nodes."
+    self.next_nodes.pop(idx)
 
   def remove_prev_node(self, prev_node: "Node"):
     """Remove a previous node"""
@@ -335,6 +339,12 @@ class AlwaysNode(Node):
     self.end_node = EndNode()  # Arbitrary end node.
     connect_nodes(self, nodes[0])
     connect_nodes(nodes[-1], self.end_node)
+
+  def print_graph(self, indent=0):
+    """Print the graph of the always block."""
+    print(f"{self.type} {self.condition}")
+    for node in self.next_nodes.values():
+      print(f"{node}")
 
 
 class EndNode(Node):
