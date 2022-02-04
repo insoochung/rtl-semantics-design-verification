@@ -10,14 +10,17 @@ from utils import get_log_fn
 def get_verible_parsed_rtl(parsed_dir=config.PARSED_RTL_DIR,
                            orig_dir=None,
                            verbose=True):
-  """Return a list parsed verible json files each read as a dict
+  """Return a dict of parsed verible json trees each read as a dict
 
-  This reads the verible json files in the parsed_dir.
-  Keyword arguments:
-  parsed_dir -- the directory where the parsed RTL files are stored.
+  This reads the verible json tree files in the parsed_dir
+  Args:
+  parsed_dir -- the directory where the verible json tree files are stored
   orig_dir -- the directory where the original RTL files are stored, this will
-    override the directory specified in the json file.
-  verbose -- whether to print to stdout.
+    override the directory specified in the json file
+  verbose -- whether to print to stdout
+
+  Returns:
+  A dict of verible json trees with keys that point to original RTL files.
   """
   log_fn = get_log_fn(verbose)
 
