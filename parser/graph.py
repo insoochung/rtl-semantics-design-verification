@@ -20,6 +20,7 @@ class Tag:
   FOR_LOOP_STATEMENT = "kForLoopStatement"
   SEQ_BLOCK = "kSeqBlock"
   BLOCK_ITEM_LIST = "kBlockItemStatementList"
+  STATEMENT = "kStatement"
 
   PARENTHESIS_GROUP = "kParenGroup"
 
@@ -131,6 +132,10 @@ def get_start_end_node(nodes: Union[tuple, list]):
 def connect_nodes(node: "Node", next_node: "Node",
                   condition=Condition.DEFAULT):
   """Connect two nodes."""
+  assert isinstance(node, Node), f"node must be a Node, but got {node}."
+  assert isinstance(next_node, Node), (
+      f"node must be a Node, but got {next_node}.")
+
   if node.is_end and next_node.is_end and condition == Condition.DEFAULT:
     # If both nodes are arbitrary end nodes, merge them together.
     for p in node.prev_nodes:
@@ -284,20 +289,21 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
       new_nodes = construct_assignment(statement, rtl_content,
                                        ignore_inner_branchs=True,
                                        block_depth=block_depth)
+    elif tag == Tag.STATEMENT:
+      new_nodes = Node(statement, rtl_content, block_depth=block_depth)
     else:
-      assert False, f"Unsupported statement '{tag}' in sequence block."
+      assert False, (
+          f"Unsupported statement "
+          f"'{get_subtree_text_info(statement, rtl_content)['text']}' "
+          f"in sequence block.")
 
     nodes.append(new_nodes)
 
   for i, n in enumerate(nodes):  # Connect nodes
     if i == 0:
       continue
-    next = n
-    if isinstance(next, tuple):
-      next = n[0]
-    prev = nodes[i - 1]
-    if isinstance(prev, tuple):
-      prev = prev[1]
+    prev = get_rightmost_node(nodes[i - 1])
+    next = get_leftmost_node(n)
     connect_nodes(prev, next)
 
   start_node, end_node = get_start_end_node(nodes)
