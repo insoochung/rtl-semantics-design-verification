@@ -431,7 +431,8 @@ class Node:
               of a block (Node)
   """
 
-  def __init__(self, verible_tree: dict = None, rtl_content: str = "", block_depth: int = 0):
+  def __init__(self, verible_tree: dict = None, rtl_content: str = "",
+               block_depth: int = 0):
     self.rtl_content = rtl_content
     self.verible_tree = verible_tree
     self.start, self.end = -1, -1
@@ -555,7 +556,8 @@ class Node:
 class EndNode(Node):
   """Node class that specifies an arbitrary end"""
 
-  def __init__(self, verible_tree: dict = None, rtl_content: str = "", block_depth: int = 0):
+  def __init__(self, verible_tree: dict = None, rtl_content: str = "",
+               block_depth: int = 0):
     super().__init__(verible_tree=verible_tree,
                      rtl_content=rtl_content, block_depth=block_depth)
     self.is_end = True
@@ -582,7 +584,7 @@ class BranchNode(Node):
     else:  # Tag.CASE_STATEMENT
       condition_tree = children[2]
     assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
-    # assert 0, condition_tree.keys()
+
     text_info = get_subtree_text_info(
         condition_tree, self.rtl_content)
     self.condition = " ".join(text_info["text"].split())
@@ -593,8 +595,8 @@ class BranchNode(Node):
 class AlwaysNode(Node):
   """Class to manage a graph of a always block."""
 
-  def update_text_and_type(self):
-    super().update_text_and_type()
+  def update_text_and_type(self, force_start=None, force_end=None):
+    super().update_text_and_type(force_start=force_start, force_end=force_end)
     self.type = self.verible_tree["children"][0]["tag"]
     assert "always" in self.type, (
         f"{self.type} is not a inspected type of node.")
