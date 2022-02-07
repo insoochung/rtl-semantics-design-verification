@@ -1,4 +1,4 @@
-import os
+import re
 from typing import List, Union
 
 from utils import get_indent_str, preprocess_rtl_str
@@ -21,6 +21,9 @@ class Tag:
   SEQ_BLOCK = "kSeqBlock"
   BLOCK_ITEM_LIST = "kBlockItemStatementList"
   STATEMENT = "kStatement"
+  NULL_STATEMENT = "kNullStatement"
+  CASE_ITEM_LIST = "kCaseItemList"
+  EXPRESSION_LIST = "kExpressionList"
 
   PARENTHESIS_GROUP = "kParenGroup"
 
@@ -32,13 +35,23 @@ class Tag:
   # Keywords
   BEGIN = "kBegin"
   END = "kEnd"
+  DEFAULT = "default"
+  UNIQUE = "unique"
+  CASE = "case"
+  CASEZ = "casez"
+  ENDCASE = "endcase"
+  COLON = ":"
 
   # Categories
-  # TODO: Handle ternary expressions
+  # TODO: Handle ternary expressions.
   # BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT, TERNARY_EXPRESSION]
   BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT]
-  ATOMIC_STATEMENTS = [IF_BODY, ELSE_CLAUSE]
-  ASSIGNMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
+  BLOCK_STATEMENTS = BRANCH_STATEMENTS + [SEQ_BLOCK]
+  # TODO: Add separate handling of for loops.
+  # TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
+  TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY,
+                         NON_BLOCKING_ASSIGNMENT, FOR_LOOP_STATEMENT,
+                         STATEMENT, NULL_STATEMENT]
 
 
 class Condition:
@@ -130,62 +143,35 @@ def get_start_end_node(nodes: Union[tuple, list]):
 
 
 def connect_nodes(node: "Node", next_node: "Node",
-                  condition=Condition.DEFAULT):
+                  condition=None):
   """Connect two nodes."""
-  assert isinstance(node, Node), f"node must be a Node, but got {node}."
-  assert isinstance(next_node, Node), (
-      f"node must be a Node, but got {next_node}.")
-
-  if node.is_end and next_node.is_end and condition == Condition.DEFAULT:
+  node = get_rightmost_node(node)
+  next_node = get_leftmost_node(next_node)
+  if node.is_end and next_node.is_end and condition is None:
     # If both nodes are arbitrary end nodes, merge them together.
     for p in node.prev_nodes:
       cond = p.remove_next_node(node)
       p.add_next_node(next_node, cond)
     del node
     return
-
-  node = get_rightmost_node(node)
-  next_node = get_leftmost_node(next_node)
   next_node.add_prev_node(node)
   node.add_next_node(next_node, condition)
 
 
-def construct_assignment(verible_tree: dict, rtl_content: str,
-                         ignore_inner_branchs: bool = False,
-                         block_depth: int = 0):
+def construct_terminal(verible_tree: dict, rtl_content: str,
+                       block_depth: int = 0):
   """Construct assignments from the verible tree."""
   tag = verible_tree["tag"]
-  assert ignore_inner_branchs or tag in Tag.ASSIGNMENTS, (
+  assert tag in Tag.TERMINAL_STATEMENTS, (
       f"Cannot construct assignment from {tag}")
-  branchs = find_subtree(verible_tree, Tag.BRANCH_STATEMENTS)
-  if not ignore_inner_branchs and len(branchs) > 0:
-    # TODO: Handle assignment with conditional statements.
-    assert 0, "Not implemented."
   # Handle assignment without conditional statements.
   node = Node(verible_tree, rtl_content, block_depth=block_depth)
   return node
 
 
-def construct_branch_statement(verible_tree: dict, rtl_content: str,
-                               ignore_inner_branchs: bool = False,
-                               block_depth: int = 0):
-  """Construct if-else statements from the verible tree."""
-  tag = verible_tree["tag"]
-  branchs = find_subtree(verible_tree, Tag.BRANCH_STATEMENTS)
-  if not ignore_inner_branchs and len(branchs) > 1:
-    assert 0, "Not implemented."
-
-  if tag == Tag.IF_ELSE_STATEMENT:
-    return construct_if_else_statement(
-        verible_tree, rtl_content,
-        ignore_inner_branchs=ignore_inner_branchs, block_depth=block_depth)
-  else:
-    return Node(verible_tree, rtl_content, block_depth=block_depth)
-
-
 def construct_if_else_statement(verible_tree: dict, rtl_content: str,
-                                ignore_inner_branchs: bool = False,
                                 block_depth: int = 0):
+  """Construct if-else statements from the verible tree."""
   tag = verible_tree["tag"]
   children = verible_tree["children"]
   assert len(children) <= 2, (
@@ -198,8 +184,7 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   assert len(if_clause["children"]) == 2
   branch_node = if_clause["children"][0]
   assert branch_node["tag"] == Tag.IF_HEADER
-  branch_node = Node(branch_node, rtl_content, block_depth=block_depth)
-  branch_node.update_condition()
+  branch_node = BranchNode(branch_node, rtl_content, block_depth=block_depth)
   nodes.append(branch_node)
   # Construct an end node:
   end_node = EndNode(block_depth=block_depth)
@@ -209,9 +194,14 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   assert if_body_node["tag"] == Tag.IF_BODY
   assert len(if_body_node["children"]) == 1
   block_node = if_body_node["children"][0]
-  assert block_node["tag"] == Tag.SEQ_BLOCK
-  if_nodes = construct_block(
-      block_node, rtl_content, block_depth=block_depth + 1)
+  assert block_node["tag"] in Tag.TERMINAL_STATEMENTS + [Tag.SEQ_BLOCK]
+  if block_node["tag"] == Tag.SEQ_BLOCK:
+    if_nodes = construct_block(
+        block_node, rtl_content, block_depth=block_depth + 1)
+  else:  # Tag.TERMINAL_STATEMENTS
+    if_node = construct_terminal(block_node, rtl_content,
+                                 block_depth=block_depth + 1)
+    if_nodes = [if_node]
   # Connect if-body node to branch node.
   connect_nodes(branch_node, if_nodes[0], condition=Condition.TRUE)
   # Connect if-body node to end node.
@@ -234,9 +224,74 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
     # Connect else-body node to end node.
     connect_nodes(else_nodes[-1], end_node)
     nodes += else_nodes
+  else:  # If there is no else clause, connect the branch node to the end node.
+    connect_nodes(branch_node, end_node, condition=Condition.FALSE)
   nodes.append(end_node)
 
   return nodes
+
+
+def construct_case_statement(verible_tree: dict, rtl_content: str,
+                             block_depth: int = 0):
+  """Construct case statement from verible tree"""
+  tag = verible_tree["tag"]
+  children = verible_tree["children"]
+  assert len(children) == 5
+  children_tags = [None if c is None else c["tag"] for c in children]
+  assert children_tags[0] in [Tag.UNIQUE, None], children_tags
+  assert children_tags[1] in [Tag.CASE, Tag.CASEZ], children_tags
+  assert children_tags[2] == Tag.PARENTHESIS_GROUP, children_tags
+  assert children_tags[3] == Tag.CASE_ITEM_LIST, children_tags
+  assert children_tags[4] == Tag.ENDCASE, children_tags
+  # Construct branch node.
+  branch_node = BranchNode(verible_tree=verible_tree, rtl_content=rtl_content,
+                           block_depth=block_depth)
+  # Construct an end node:
+  end_node = EndNode(block_depth=block_depth)
+  # Construct case-item-list node.
+  default_node = None
+  nodes = []
+  for case_item in children[3]["children"]:
+    children = case_item["children"]
+    children_tags = [c["tag"] for c in children]
+    assert len(children) == 3
+    assert children_tags[0] in [Tag.DEFAULT, Tag.EXPRESSION_LIST]
+    assert children_tags[1] == Tag.COLON
+    assert children_tags[2] in Tag.BLOCK_STATEMENTS + Tag.TERMINAL_STATEMENTS
+    # Construct case-item-list node.
+    node = children[2]
+    if children_tags[2] in Tag.BLOCK_STATEMENTS:
+      node = construct_block(node, rtl_content, block_depth=block_depth + 1)
+    else:  # Tag.TERMINAL_STATEMENTS
+      node = construct_terminal(node, rtl_content, block_depth=block_depth + 1)
+    # Connect case-item-list node to branch node.
+    # Process case conditions
+    condition = get_subtree_text_info(children[0], rtl_content)["text"]
+    condition = preprocess_rtl_str(condition, no_space=True)
+    conditions = re.split(r',\s*(?![^{}]*\})', condition)
+    connect_nodes(branch_node, node, condition=conditions)
+    # Connect case-item-list node to end node.
+    connect_nodes(node, end_node)
+    nodes.append(node)
+    if children_tags[0] == Tag.DEFAULT:
+      assert default_node is None, "Multiple default cases"
+      default_node = get_leftmost_node(node)
+
+  if default_node:
+    # Elaborate default node lead condition.
+    assert default_node.lead_condition == Condition.DEFAULT
+    non_default_conds = []
+    for n in nodes:
+      n = get_leftmost_node(n)
+      if n == default_node:
+        continue
+      non_default_conds.append(n.lead_condition)
+    default_node.lead_condition = f"!({' || '.join(non_default_conds)})"
+  else:
+    # Connect branch node to end node.
+    connect_nodes(branch_node, end_node)
+
+  return branch_node, end_node
 
 
 def construct_block(verible_tree: dict, rtl_content: str,
@@ -251,6 +306,9 @@ def construct_block(verible_tree: dict, rtl_content: str,
   elif tag == Tag.IF_ELSE_STATEMENT:
     return construct_if_else_statement(verible_tree, rtl_content,
                                        block_depth=block_depth)
+  elif tag == Tag.CASE_STATEMENT:
+    return construct_case_statement(verible_tree, rtl_content,
+                                    block_depth=block_depth)
   else:
     assert 0, f"Cannot construct block from {tag}, not implemented."
 
@@ -276,21 +334,16 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
     tag = statement["tag"]
     if tag in Tag.BRANCH_STATEMENTS:
       # TODO: handle if-else, case statements correctly
-      new_nodes = construct_branch_statement(statement, rtl_content,
-                                             ignore_inner_branchs=True,
-                                             block_depth=block_depth)
+      new_nodes = construct_block(statement, rtl_content,
+                                  block_depth=block_depth)
 
     elif tag == Tag.FOR_LOOP_STATEMENT:
       # TODO: need to decide how to handle for loops with if statements inside
-      new_nodes = construct_assignment(statement, rtl_content,
-                                       ignore_inner_branchs=True,
-                                       block_depth=block_depth)
-    elif tag in Tag.ASSIGNMENTS:
-      new_nodes = construct_assignment(statement, rtl_content,
-                                       ignore_inner_branchs=True,
-                                       block_depth=block_depth)
-    elif tag == Tag.STATEMENT:
-      new_nodes = Node(statement, rtl_content, block_depth=block_depth)
+      new_nodes = construct_terminal(statement, rtl_content,
+                                     block_depth=block_depth)
+    elif tag in Tag.TERMINAL_STATEMENTS:
+      new_nodes = construct_terminal(statement, rtl_content,
+                                     block_depth=block_depth)
     else:
       assert False, (
           f"Unsupported statement "
@@ -302,9 +355,7 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
   for i, n in enumerate(nodes):  # Connect nodes
     if i == 0:
       continue
-    prev = get_rightmost_node(nodes[i - 1])
-    next = get_leftmost_node(n)
-    connect_nodes(prev, next)
+    connect_nodes(nodes[i - 1], n)
 
   start_node, end_node = get_start_end_node(nodes)
   return start_node, end_node
@@ -412,7 +463,7 @@ class Node:
     ret = preprocess_rtl_str(self.text, one_line=True)
     return ret
 
-  def update_text_and_type(self):
+  def update_text_and_type(self, force_start=None, force_end=None):
     """Update the text and type of the node."""
     assert self.verible_tree is not None, "verible_tree must be set."
     assert self.rtl_content, "rtl_content must be set."
@@ -420,20 +471,16 @@ class Node:
         self.verible_tree, self.rtl_content)
     self.start, self.end, self.text = (
         text_info["start"], text_info["end"], text_info["text"])
+    if force_start:
+      self.start = force_start
+    if force_end:
+      self.end = force_end
+    if force_start or force_end:
+      self.text = self.rtl_content[self.start:self.end]
     self.type = self.verible_tree["tag"]
 
-  def update_condition(self):
-    """Update the condition of the node if it is a branch node."""
-    assert self.verible_tree["tag"] == Tag.IF_HEADER, (
-        f"{self.verible_tree['tag']} is not a branch node.")
-    condition_tree = self.verible_tree["children"][-1]
-    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
-    text_info = get_subtree_text_info(
-        self.verible_tree["children"][-1], self.rtl_content)
-    self.condition = " ".join(text_info["text"].split())
-
   def add_next_node(self, next_node: "Node",
-                    next_condition: str = Condition.DEFAULT):
+                    next_condition: str = None):
     """Add a next node to the node.
 
     Keyword arguments:
@@ -445,9 +492,27 @@ class Node:
           f"Connection {self.type} -> {cond}: {next_condition} already "
           f"exists.")
     self.next_nodes.append((next_node, next_condition))
-    if next_condition != Condition.DEFAULT:
-      assert self.condition, f"{self} has no condition, tried to add {next_condition}->{next_node}"
-      next_node.lead_condition = f"({self.condition} == {next_condition})"
+    if isinstance(next_condition, list) and len(next_condition) == 1:
+      next_condition = next_condition[0]
+    if next_condition is None:  # Procedural connection
+      return
+    elif next_condition == Condition.DEFAULT:  # Default connection
+      next_node.lead_condition = Condition.DEFAULT
+      return
+
+    assert self.condition, (
+        f"{self} has no condition, tried to add {next_condition}->{next_node}")
+    if next_condition == Condition.TRUE:
+      next_node.lead_condition = self.condition
+    elif next_condition == Condition.FALSE:
+      next_node.lead_condition = f"!{self.condition}"
+    else:
+      if not isinstance(next_condition, list):
+        next_node.lead_condition = f"{self.condition} == {next_condition}"
+      else:  # If multiple conditions are possible, aggregate them using OR.
+        next_conditions = [
+            f"{self.condition} == {c}" for c in next_condition]
+        next_node.lead_condition = f"({' || '.join(next_conditions)})"
 
   def add_prev_node(self, prev_node: "Node"):
     """Add a previous node to the node.
@@ -476,7 +541,7 @@ class Node:
       if n.block_depth > self.block_depth and n != self.end_node:
         ret.extend(n.to_list())
         while (len(ret[-1].next_nodes) == 1
-               and ret[-1].next_nodes[0][0].block_depth >= self.block_depth):
+               and ret[-1].next_nodes[0][0].block_depth > self.block_depth):
           next_n, _ = ret[-1].next_nodes[0]
           if next_n == self.end_node:
             break
@@ -495,6 +560,34 @@ class EndNode(Node):
                      rtl_content=rtl_content, block_depth=block_depth)
     self.is_end = True
     self.type = "end"
+
+
+class BranchNode(Node):
+  """Node class that specifies a branching point"""
+
+  def __init__(self, verible_tree: dict = None, rtl_content: str = "",
+               block_depth: int = 0):
+    super().__init__(verible_tree=verible_tree,
+                     rtl_content=rtl_content, block_depth=block_depth)
+    self.update_condition()
+
+  def update_condition(self):
+    """Update the condition of the node if it is a branch node."""
+    tag = self.verible_tree["tag"]
+    assert tag in [Tag.IF_HEADER, Tag.CASE_STATEMENT], (
+        f"{tag} is not a branch node.")
+    children = self.verible_tree["children"]
+    if tag == Tag.IF_HEADER:
+      condition_tree = children[-1]
+    else:  # Tag.CASE_STATEMENT
+      condition_tree = children[2]
+    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+    # assert 0, condition_tree.keys()
+    text_info = get_subtree_text_info(
+        condition_tree, self.rtl_content)
+    self.condition = " ".join(text_info["text"].split())
+
+    self.update_text_and_type(force_end=text_info["end"])
 
 
 class AlwaysNode(Node):
@@ -535,7 +628,7 @@ class AlwaysNode(Node):
   def print_graph(self):
     """Print the graph of the always block."""
     l = self.to_list()
-    print("----")
+    print()
     for n in l:
       print(get_indent_str(n.block_depth * 2) + str(n))
-    print("----")
+    print()
