@@ -131,14 +131,14 @@ def get_start_end_node(nodes: Union[tuple, list]):
 def connect_nodes(node: "Node", next_node: "Node",
                   condition=Condition.DEFAULT):
   """Connect two nodes."""
-  # TODO: merge redundant
-  # if node.is_end and next_node.is_end and condition == Condition.DEFAULT:
-  #   # If both nodes are arbitrary end nodes, merge them together.
-  #   for p in node.prev_nodes:
-  #     cond = p.remove_next_node(node)
-  #     p.add_next_node(next_node, cond)
-  #   del node
-  # node.add_next_node(next_node, condition)
+  if node.is_end and next_node.is_end and condition == Condition.DEFAULT:
+    # If both nodes are arbitrary end nodes, merge them together.
+    for p in node.prev_nodes:
+      cond = p.remove_next_node(node)
+      p.add_next_node(next_node, cond)
+    del node
+    return
+
   node = get_rightmost_node(node)
   next_node = get_leftmost_node(next_node)
   next_node.add_prev_node(node)
@@ -197,7 +197,7 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   branch_node.update_condition()
   nodes.append(branch_node)
   # Construct an end node:
-  end_node = EndNode()
+  end_node = EndNode(block_depth=block_depth)
 
   # Construct if-body node.
   if_body_node = if_clause["children"][1]
@@ -396,7 +396,11 @@ class Node:
       prefix += f" / condition: {self.condition}"
     if self.lead_condition:
       prefix += f" / lead condition: {self.lead_condition}"
-    return f"({prefix}): {self.get_one_line_str()}"
+    s = self.get_one_line_str()
+    if s and "always" not in self.type:
+      return f"({prefix}): {s}"
+    else:
+      return f"({prefix})"
 
   def get_one_line_str(self):
     ret = preprocess_rtl_str(self.text, one_line=True)
@@ -436,7 +440,7 @@ class Node:
           f"exists.")
     self.next_nodes.append((next_node, next_condition))
     if next_condition != Condition.DEFAULT:
-      assert self.condition
+      assert self.condition, f"{self} has no condition, tried to add {next_condition}->{next_node}"
       next_node.lead_condition = f"({self.condition} == {next_condition})"
 
   def add_prev_node(self, prev_node: "Node"):
@@ -452,8 +456,9 @@ class Node:
       if node == next_node:
         idx = i
         break
-    assert idx > i, f"Node '{next_node}' not found in next_nodes."
+    assert idx > -1, f"Node '{next_node}' not found in next_nodes."
     self.next_nodes.pop(idx)
+    return cond
 
   def remove_prev_node(self, prev_node: "Node"):
     """Remove a previous node"""
@@ -526,6 +531,5 @@ class AlwaysNode(Node):
     l = self.to_list()
     print("----")
     for n in l:
-      print(get_indent_str(n.block_depth * 2) + (
-          str(n) if "always" not in n.type else n.type))
+      print(get_indent_str(n.block_depth * 2) + str(n))
     print("----")
