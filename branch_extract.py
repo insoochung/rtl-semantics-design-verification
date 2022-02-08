@@ -5,15 +5,41 @@ import argparse
 from bs4 import BeautifulSoup
 import re
 
-
 parser=argparse.ArgumentParser()
-parser.add_argument("-cp", "--covPath", help="Coverage HTML path")
+parser.add_argument("-cp", "--covPath", help="Coverage HTML path", required=False)
+parser.add_argument("-cd", "--covDir", help="Path to the urgReport which contains all the coverage HTML", required=False)
 
 #Get the argument list
 args = parser.parse_args()
 #path to where all the coverage html files are
 '''TODO Change the path to read from a commandline'''
-file_path = "/home/abuturab/ML-In-DV/alu_cov_report/urgReport/mod37.html" #args.covPath
+if args.covPath is not None:
+    file_path = args.covPath #"/home/abuturab/ML-In-DV/alu_cov_report/urgReport/mod37.html"
+else:
+    file_path=False
+if args.covDir is not None:
+    dir_path=args.covDir
+else:
+    dir_path=False
+
+def coverage_all_files():
+    if os.path.isdir(dir_path) and not os.path.isdir(os.path.join(os.getcwd(),"CP_dump")):
+        os.mkdir(os.path.join(os.getcwd(),"CP_dump"))
+
+    for file in os.listdir(dir_path):
+        if re.search(r".*.html$", file) and os.path.isfile(os.path.join(dir_path,file)):
+            srch_temp=re.search(r"(.*).html", file)
+            cov_name=srch_temp.group(1)
+            file_path=os.path.join(dir_path,file)
+            # print("file path:", file_path)
+            # print("file name: ", "."+cov_name+".yaml")
+            if write_branch_to_temp(os.path.join(dir_path,file))==1:
+                print("Branch found in file:", file_path)
+                branch_dict=set_branch_dict()
+                write_yaml_file(branch_dict, cov_name)
+                cleanup_temp_files()
+            else:
+                cleanup_temp_files()         
 
 def create_branch_temp():
     try:
@@ -31,19 +57,24 @@ def create_branch_table_temp():
         exit
     return file_temp
 
-def write_branch_to_temp():
+def write_branch_to_temp(html_file):
     _BRANCH_START_FLAG=0
+    _BRANCH_FOUND=0
     #file_path = args.covPath
     write_file_pointer=create_branch_temp()
     write_table_file_pointer=create_branch_table_temp()
 
-    if os.path.isfile(file_path):
-        with open(file_path,'r') as file:
+    print("Working on File:", html_file)
+    if os.path.isfile(html_file):
+        with open(html_file,'r') as file:
             for line in file:
-                if re.search(r"Branch Coverage for Module",line):
+                if re.search(r"Branch Coverage for",line):
                     _BRANCH_START_FLAG=1
+                    _BRANCH_FOUND=1
                 if re.search(r"pre class", line) and _BRANCH_START_FLAG==1:
                     _BRANCH_START_FLAG=2
+                if re.search(r"Assert Coverage for",line) or re.search(r"Line Coverage for",line):
+                    _BRANCH_START_FLAG=0
                     #print(line)
                 if _BRANCH_START_FLAG==1:
                     write_table_file_pointer.write(line)
@@ -51,6 +82,7 @@ def write_branch_to_temp():
                     write_file_pointer.write(line)
     write_file_pointer.close()
     write_table_file_pointer.close()
+    return _BRANCH_FOUND
 
 def set_branch_dict():
 
@@ -61,7 +93,7 @@ def set_branch_dict():
         cov_read=BeautifulSoup(file.read(), 'html.parser')
 
     tables = cov_read.find_all("table")
-    head_row=tables[0].find("tr").find_all("th")
+    #head_row=tables[0].find("tr").find_all("th")
     #print(tables[0])
     #print("Branches", end=",")
     # for entry in head_row:
@@ -78,15 +110,20 @@ def set_branch_dict():
                 branch_dict['SCORE'].append(entries[4].string)
     return branch_dict
 
-def write_yaml_file(branch_dict):
+def write_yaml_file(branch_dict, cov_name="default_cov"):
     with open(os.path.join(os.getcwd(),".cov_temp.html"),"r") as file:
         cov_read=BeautifulSoup(file.read(), 'html.parser')
-
-    fp=open(os.path.join(os.getcwd(),".cov.yaml"),"w") #as file:
-
+    
+    write_dir=os.path.join(os.getcwd(),"CP_dump")
+    if not os.path.isdir(write_dir):
+        os.mkdir(write_dir)
+    
+    fp=open(os.path.join(write_dir,"."+cov_name+".yaml"),"w") #as file:
+    print(os.path.join(write_dir,"."+cov_name+".yaml"))
     code = cov_read.find_all("pre")
     tables = cov_read.find_all("table")
     count=0
+    print(branch_dict)
     for table in tables:
         if count<len(code):
             line_no=re.search(r"([\d]+)", str(code[count]))
@@ -95,6 +132,8 @@ def write_yaml_file(branch_dict):
             # print("\tPath:")
             fp.write("Branch: "+str(count)+"\n")
             fp.write("\tLine: "+str(line_no.group(1))+"\n")
+            print(str(line_no.group(1)))
+            print(branch_dict['LINE'].index(str(line_no.group(1))))
             fp.write("\tType: "+branch_dict['TYPE'][branch_dict['LINE'].index(str(line_no.group(1)))]+"\n")
             fp.write("\tPaths:")       
             count+=1
@@ -124,11 +163,16 @@ def write_yaml_file(branch_dict):
         fp.write("\n") 
     fp.close()
 
-write_branch_to_temp()
-branch_dict=set_branch_dict()
-write_yaml_file(branch_dict)
+def cleanup_temp_files():
+    if os.path.exists(".cov_temp.html"):
+        os.remove(".cov_temp.html")
+    if os.path.exists(".cov_table_temp.html"):
+        os.remove(".cov_table_temp.html")
 
-
-
-
-
+if dir_path != False:
+    coverage_all_files()
+elif file_path !=False:
+    write_branch_to_temp(file_path)
+    branch_dict=set_branch_dict()
+    write_yaml_file(branch_dict)
+    cleanup_temp_files()
