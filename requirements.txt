@@ -1,2 +1,4 @@
 lark>=1.0.0
 tqdm
+yaml
+junit_xml

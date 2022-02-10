@@ -1,20 +1,42 @@
 # Learning semantic representation of design for verification
 
-## Quick start
+## How to
 
+### Setup dependencies
+
+#### Base dependencies
 ```bash
-# 1. Pull submodules
+# Pull submodules
 git submodule update --init --recursive
 
-# 2. Install python dependencies (tested with python 3.6)
+# Install python dependencies (tested with python 3.6)
 pip install -r requirements.txt
+```
 
-# 3. Run CDFG generation and RTL reformatting.
-python parser/parser.py
+#### Simulator dependencies
+```bash
+# Set required environment variables.
+source set_env_vars.sh
+source set_vcs_vars.sh # This should be modified per environment.
 
-# 4. Examine reformatted RTL for generated node information
+# Download and extract IBEX toolchain
+./setup_toolchain.sh
 
-vim reformatted/ibex_alu.sv # An example
-...
+# Build spike ISS for co-simulation.
+apt-get install device-tree-compiler
+./setup_spike.sh
 
 ```
+
+<!-- ### Parse IBEX RTL
+
+```bash
+# Run CDFG generation and RTL reformatting.
+# - Reformatting is required to match branches in coverage reports with nodes
+#   in parsed CDFGs.
+python parser/parser.py
+
+# Swap RTL code with reformatted RTL.
+
+
+``` -->
