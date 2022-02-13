@@ -28,15 +28,31 @@ apt-get install device-tree-compiler
 
 ```
 
-<!-- ### Parse IBEX RTL
+### Construct CDFGs
+
+#### Parse RTL using verible
 
 ```bash
-# Run CDFG generation and RTL reformatting.
-# - Reformatting is required to match branches in coverage reports with nodes
-#   in parsed CDFGs.
-python parser/parser.py
+# 1. Build and install verible commands according to the documents
 
-# Swap RTL code with reformatted RTL.
+# 2.a. Parse to json format
+for sv in $RTL_DIR/*sv
+do
+  verible-verilog-syntax  $sv  --printtree --export_json > $PARSE_RESULTS_DIR/$(basename -- $sv).json
+done
 
+# 3.a. Parse to tree format
+for sv in $RTL_DIR/*sv
+do
+  verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
+done
 
-``` -->
+```
+
+### Run simulations for data generation
+
+TODO
+
+### Parse simulation reports to training data points
+
+TODO

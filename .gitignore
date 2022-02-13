@@ -1,4 +1,7 @@
+.vscode/
 __pycache__/
 reformatted/
 toolchains/
 spike/
+parser/parsed_rtl/*.tree
+parser/parsed_rtl/*.json
