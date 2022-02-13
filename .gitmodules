@@ -1,6 +1,9 @@
 [submodule "ibex"]
 	path = ibex
 	url = https://github.com/lowRISC/ibex.git
+[submodule "riscv-isa-sim"]
+	path = riscv-isa-sim
+	url = https://github.com/lowRISC/riscv-isa-sim.git
 [submodule "parser/verible"]
 	path = parser/verible
 	url = https://github.com/chipsalliance/verible
