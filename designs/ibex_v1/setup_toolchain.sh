@@ -14,7 +14,7 @@ then
   wget https://github.com/lowRISC/lowrisc-toolchains/releases/download/$RISCV_TOOLTAG/lowrisc-toolchain-gcc-rv32imc-$RISCV_TOOLTAG.tar.xz
   tar -xvf lowrisc-toolchain-gcc-rv32imc-$RISCV_TOOLTAG.tar.xz
   cd -
-  echo "RISCV toolchain downloaded and extracted at {$RISCV_TOOLCHAIN}"
+  echo "RISCV toolchain downloaded and extracted at $RISCV_TOOLCHAIN"
 else
   echo "$RISCV_TOOLCHAIN already exists. Maybe remove the directory and retry?"
 fi

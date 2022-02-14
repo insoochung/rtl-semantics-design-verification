@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
 
+cd ../../ # Go to repository directory
 git submodule update --init --recursive
+cd -
 
 if [ -z ${SPIKE_DIR+x} ];
 then
@@ -12,8 +14,8 @@ fi
 # Maybe build spike binaries
 if [ ! -d $SPIKE_PATH ]
 then
-  mkdir -p $REPO/riscv-isa-sim/build
-  cd $REPO/riscv-isa-sim/build
+  mkdir -p $DESIGN_DIR/riscv-isa-sim/build
+  cd $DESIGN_DIR/riscv-isa-sim/build
   ../configure --enable-commitlog --enable-misaligned --prefix=$SPIKE_DIR
   make -j16
   make install
