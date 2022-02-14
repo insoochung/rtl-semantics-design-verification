@@ -520,6 +520,7 @@ class Node:
   verible_tree -- the verible tree of the node (dict)
   start -- the start position of the node in the rtl_content (int)
   end -- the end position of the node in the rtl_content (int)
+  line_num -- the line number of the node's statement in the rtl_content (int)
   text -- the text of the node (str)
   type -- the type of the node (str)
   condition -- the condition of the node, only for branch nodes (str)
@@ -540,6 +541,7 @@ class Node:
     self.rtl_content = rtl_content
     self.verible_tree = verible_tree
     self.start, self.end = -1, -1
+    self.line_num = -1
     self.text = ""
     self.type = ""
     self.condition = ""
@@ -551,11 +553,14 @@ class Node:
     self.end_node = None
     if verible_tree is not None:
       self.update_text_and_type()
+      self.update_line_number()
     self.assigned_vars = set()
     self.condition_vars = set()
 
   def __str__(self):
     prefix = self.type
+    if self.line_num >= 0:
+      prefix += f" @L{self.line_num}"
     if self.condition:
       prefix += f" / cond.: {self.condition}"
     if self.lead_condition:
@@ -589,6 +594,11 @@ class Node:
     if force_start or force_end:
       self.text = self.rtl_content[self.start:self.end]
     self.type = self.verible_tree["tag"]
+
+  def update_line_number(self):
+    """Update the line number of the node."""
+    assert self.rtl_content, "rtl_content must be set."
+    self.line_num = self.rtl_content[:self.start].count("\n") + 1
 
   def add_next_node(self, next_node: "Node",
                     next_condition: str = None):
@@ -631,8 +641,7 @@ class Node:
         next_node.lead_condition = f"({' || '.join(next_conditions)})"
 
   def add_prev_node(self, prev_node: "Node"):
-    """Add a previous node to the node.
-    """
+    """Add a previous node to the node."""
     if prev_node not in self.prev_nodes:
       self.prev_nodes.append(prev_node)
 
@@ -695,7 +704,6 @@ class BranchNode(Node):
     text_info = get_subtree_text_info(
         condition_tree, self.rtl_content)
     self.condition = " ".join(text_info["text"].split())
-
     self.update_text_and_type(force_end=text_info["end"])
 
 
@@ -731,10 +739,8 @@ class AlwaysNode(Node):
     """Find and update the vars assigned within always."""
     assign_subtrees = find_subtree(self.verible_tree, Tag.ASSIGNMENTS)
     ids = set()
-    # assert 0, assign_subtrees
     for subtree in assign_subtrees:
       lhs_subtree = subtree["children"][0]
-
       assert lhs_subtree["tag"] == "kLPValue", (
           f"{lhs_subtree['tag']} is not an expected type of node.")
       ids |= get_symbol_idendifiers_in_tree(lhs_subtree, self.rtl_content)
