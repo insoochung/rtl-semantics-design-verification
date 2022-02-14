@@ -3,7 +3,7 @@ set -e
 
 if [ -z ${RISCV_TOOLCHAIN+x} ];
 then
-  echo "Environment variable RISCV_TOOLCHAIN not set. Maybe you haven't sourced 'set_env.sh'?"
+  echo "Environment variable RISCV_TOOLCHAIN not set. Maybe you haven't sourced 'set_env_vars.sh'?"
   exit 0
 fi
 
