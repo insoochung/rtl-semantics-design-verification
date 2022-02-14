@@ -5,6 +5,9 @@
 ### Setup dependencies
 
 #### Base dependencies
+
+This step will install commonly required dependencies for using this repository.
+
 ```bash
 # Pull submodules
 git submodule update --init --recursive
@@ -13,46 +16,34 @@ git submodule update --init --recursive
 pip install -r requirements.txt
 ```
 
-#### Simulator dependencies
-```bash
-# Set required environment variables.
-source set_env_vars.sh
-source set_vcs_vars.sh # This should be modified per environment.
+### Generate data
 
-# Download and extract IBEX toolchain
-./setup_toolchain.sh
+#### Overview
 
-# Build spike ISS for co-simulation.
-apt-get install device-tree-compiler
-./setup_spike.sh
-
+To train a design2vec framework, we need datapoints in form of:
+```json
+{
+  "input":
+    {
+      "test_params": "param1=val1,param2=val2,param3=val3,...",
+      "branch": "{module_name}/{line_num}/{trace_num}"
+    },
+  "result(is_hit)": "0 or 1"
+}
 ```
 
-### Construct CDFGs
+In order to generate such datapoints, we need to:
 
-#### Parse RTL using verible
+1. Simulate design to get coverage information per set of test parameters via URG reports.
+2. Parse RTL representation into a set of ASTs using verible.
+3. Convert ASTs into CDFGs.
+4. Match the branches in URG reports to subpaths within CDFGs.
 
-```bash
-# 1. Build and install verible commands according to the documents
+#### Design simulation and RTL2AST
 
-# 2.a. Parse to json format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree --export_json > $PARSE_RESULTS_DIR/$(basename -- $sv).json
-done
+`README.md` in each design's directory explains the process.
+- [ibex_v1](designs/ibex_v1/)
 
-# 3.a. Parse to tree format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
-done
-
-```
-
-### Run simulations for data generation
-
-TODO
-
-### Parse simulation reports to training data points
+#### Parse simulation reports to training data points
 
 TODO
