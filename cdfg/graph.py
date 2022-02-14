@@ -25,6 +25,8 @@ class Tag:
   CASE_ITEM_LIST = "kCaseItemList"
   EXPRESSION_LIST = "kExpressionList"
 
+  SYMBOL_IDENTIFIER = "SymbolIdentifier"
+
   PARENTHESIS_GROUP = "kParenGroup"
 
   # Assignments
@@ -46,18 +48,21 @@ class Tag:
   # TODO: Handle ternary expressions.
   # BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT, TERNARY_EXPRESSION]
   BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT]
+  CONDITION_STATEMENTS = [IF_HEADER, CASE_STATEMENT]
   BLOCK_STATEMENTS = BRANCH_STATEMENTS + [SEQ_BLOCK]
   # TODO: Add separate handling of for loops.
   # TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
   TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY,
                          NON_BLOCKING_ASSIGNMENT, FOR_LOOP_STATEMENT,
                          STATEMENT, NULL_STATEMENT]
+  ASSIGNMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
 
 
 class Condition:
   TRUE = "true"
   FALSE = "false"
   DEFAULT = "default"
+  DATA = "data"
 
 
 def print_tags(verible_tree: dict, indent_size: int = 0):
@@ -110,13 +115,62 @@ def find_subtree(verible_tree: dict, tags: List[str]):
   return []
 
 
-def get_subtree_text_info(verible_tree, rtl_content):
+def get_branch_condition_tree(branch_tree: dict):
+  """Return the condition expression tree of a conditional statement."""
+  tag = branch_tree["tag"]
+  assert tag in Tag.CONDITION_STATEMENTS, (
+      f"{tag} is not a condition statement.")
+  children = branch_tree["children"]
+  if tag == Tag.IF_HEADER:
+    condition_tree = children[-1]
+  else:  # Tag.CASE_STATEMENT
+    condition_tree = children[2]
+  assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+  return condition_tree
+
+
+def get_case_item_tree(case_statement_tree: dict):
+  """Return the case item tree of a case statement."""
+  assert case_statement_tree["tag"] == Tag.CASE_STATEMENT
+  children = case_statement_tree["children"]
+  assert children[3]["tag"] == Tag.CASE_ITEM_LIST
+  return children[3]
+
+
+def get_subtree_text_info(verible_tree: dict, rtl_content: str):
   """Return tuple of form (start_pos, end_pos, text) of the subtree."""
   l = flatten_tree(verible_tree)
   start, end = l[0]["start"], l[-1]["end"]
   ret = {}
   ret["text"] = rtl_content[start:end]
   ret["start"], ret["end"] = start, end
+  return ret
+
+
+def get_symbol_idendifiers_in_tree(verible_tree: dict, rtl_content: str,
+                                   ignore_indexing_variables: bool = True,
+                                   ignore_object_attributes: bool = True,
+                                   ignore_constants: bool = True):
+  """Return a list of symbol identifiers in the verible tree."""
+  ret = set()
+  for t in find_subtree(verible_tree, Tag.SYMBOL_IDENTIFIER):
+    cand_var = get_subtree_text_info(t, rtl_content)["text"]
+    ret.add(cand_var)
+
+  if ignore_indexing_variables:
+    for t in find_subtree(verible_tree, "kDimensionScalar"):
+      ret -= get_symbol_idendifiers_in_tree(t,
+                                            rtl_content, False, False, False)
+  if ignore_object_attributes:
+    for t in find_subtree(verible_tree, "kHierarchyExtension"):
+      ret -= get_symbol_idendifiers_in_tree(t,
+                                            rtl_content, False, False, False)
+  if ignore_constants:
+    constants = set()
+    for v in ret:
+      if v.isupper():  # Assumes all uppercase names for constants.
+        constants.add(v)
+    ret -= constants
   return ret
 
 
@@ -150,8 +204,9 @@ def connect_nodes(node: "Node", next_node: "Node",
   if node.is_end and next_node.is_end and condition is None:
     # If both nodes are arbitrary end nodes, merge them together.
     for p in node.prev_nodes:
-      cond = p.remove_next_node(node)
-      p.add_next_node(next_node, cond)
+      conds = p.remove_next_node(node)
+      assert len(conds) == 1, f"Unexpected conditions: {conds}"
+      p.add_next_node(next_node, conds[0])
     del node
     return
   next_node.add_prev_node(node)
@@ -251,7 +306,7 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   # Construct case-item-list node.
   default_node = None
   nodes = []
-  for case_item in children[3]["children"]:
+  for case_item in get_case_item_tree(verible_tree)["children"]:
     children = case_item["children"]
     children_tags = [c["tag"] for c in children]
     assert len(children) == 3
@@ -360,7 +415,8 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
   start_node, end_node = get_start_end_node(nodes)
   return start_node, end_node
 
-def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int=0):
+
+def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int = 0):
   """Construct always node and its children nodes."""
   always_node = AlwaysNode(verible_tree, rtl_content, block_depth)
   children = always_node.verible_tree["children"]
@@ -385,6 +441,11 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   always_node.end_node = EndNode(block_depth=always_node.block_depth)
   connect_nodes(always_node, block_nodes[0])
   connect_nodes(block_nodes[-1], always_node.end_node)
+  # Loop back to the start node.
+  connect_nodes(always_node.end_node, always_node)
+
+  always_node.update_condition_vars()
+  always_node.update_assigned_vars()
   always_node.print_graph()
   return always_node
 
@@ -439,7 +500,16 @@ class Module:
     for t in always_subtrees:
       always_node = construct_always_node(t, self.rtl_content)
       self.always_graphs.append(always_node)
+    num_always = len(self.always_graphs)
 
+    # Connect data edges
+    for i in range(num_always):
+      for j in range(i + 1, num_always):
+        x, y = self.always_graphs[i], self.always_graphs[j]
+        if x.assigned_vars & y.condition_vars:
+          connect_nodes(x.end_node, y, condition=Condition.DATA)
+        if x.condition_vars & y.assigned_vars:
+          connect_nodes(y.end_node, x, condition=Condition.DATA)
 
 
 class Node:
@@ -459,6 +529,10 @@ class Node:
   block_depth -- the depth of the block the node is in (int)
   end_node -- the end node of the block, exists only if this is a start node
               of a block (Node)
+  condition_vars -- a set of variables that are used in the condition of the
+                    node and its descendents (Set(str))
+  assigned_vars -- a set of variables that are assigned in the node and its
+                   descendents (Set(str))
   """
 
   def __init__(self, verible_tree: dict = None, rtl_content: str = "",
@@ -477,13 +551,19 @@ class Node:
     self.end_node = None
     if verible_tree is not None:
       self.update_text_and_type()
+    self.assigned_vars = set()
+    self.condition_vars = set()
 
   def __str__(self):
     prefix = self.type
     if self.condition:
-      prefix += f" / condition: {self.condition}"
+      prefix += f" / cond.: {self.condition}"
     if self.lead_condition:
-      prefix += f" / lead condition: {self.lead_condition}"
+      prefix += f" / lead cond.: {self.lead_condition}"
+    if self.condition_vars:
+      prefix += f" / cond. vars: {self.condition_vars}"
+    if self.assigned_vars:
+      prefix += f" / assigned vars: {self.assigned_vars}"
     s = self.get_one_line_str()
     if s and "always" not in self.type:
       return f"({prefix}): {s}"
@@ -517,11 +597,13 @@ class Node:
     Keyword arguments:
     next_condition -- the condition of the next node (str)
     """
-    for n, cond in self.next_nodes:
-      assert cond != next_condition, (
-          f"Tried to add connection -> {cond}: {next_node}. "
-          f"Connection {self.type} -> {cond}: {next_condition} already "
-          f"exists.")
+    if next_condition != Condition.DATA:
+      # Only data edges are allowed to have multiple non-unique connections
+      for n, cond in self.next_nodes:
+        assert cond != next_condition, (
+            f"Tried to add connection -> {cond}: {next_node}. "
+            f"Connection {self.type} -> {cond}: {next_condition} already "
+            f"exists.")
     self.next_nodes.append((next_node, next_condition))
     if isinstance(next_condition, list) and len(next_condition) == 1:
       next_condition = next_condition[0]
@@ -529,6 +611,9 @@ class Node:
       return
     elif next_condition == Condition.DEFAULT:  # Default connection
       next_node.lead_condition = Condition.DEFAULT
+      return
+    elif next_condition == Condition.DATA:  # Connected by a data edge.
+      next_node.lead_condition = Condition.DATA
       return
 
     assert self.condition, (
@@ -554,13 +639,14 @@ class Node:
   def remove_next_node(self, next_node: "Node"):
     """Remove a next node, and return the condition of the removed node"""
     idx = -1
+    conds = []
     for i, (node, cond) in enumerate(self.next_nodes):
       if node == next_node:
         idx = i
-        break
+        self.next_nodes.pop(idx)
+        conds.append(cond)
     assert idx > -1, f"Node '{next_node}' not found in next_nodes."
-    self.next_nodes.pop(idx)
-    return cond
+    return conds
 
   def remove_prev_node(self, prev_node: "Node"):
     """Remove a previous node"""
@@ -605,16 +691,7 @@ class BranchNode(Node):
 
   def update_condition(self):
     """Update the condition of the node if it is a branch node."""
-    tag = self.verible_tree["tag"]
-    assert tag in [Tag.IF_HEADER, Tag.CASE_STATEMENT], (
-        f"{tag} is not a branch node.")
-    children = self.verible_tree["children"]
-    if tag == Tag.IF_HEADER:
-      condition_tree = children[-1]
-    else:  # Tag.CASE_STATEMENT
-      condition_tree = children[2]
-    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
-
+    condition_tree = get_branch_condition_tree(self.verible_tree)
     text_info = get_subtree_text_info(
         condition_tree, self.rtl_content)
     self.condition = " ".join(text_info["text"].split())
@@ -630,6 +707,38 @@ class AlwaysNode(Node):
     self.type = self.verible_tree["children"][0]["tag"]
     assert "always" in self.type, (
         f"{self.type} is not a inspected type of node.")
+
+  def update_condition_vars(self):
+    """Find and track the vars used in descendent condition statements"""
+    conditional_subtrees = find_subtree(self.verible_tree,
+                                        Tag.CONDITION_STATEMENTS)
+    ids = set()
+    for subtree in conditional_subtrees:
+      condition_tree = get_branch_condition_tree(subtree)
+      ids |= get_symbol_idendifiers_in_tree(condition_tree, self.rtl_content)
+
+      if subtree["tag"] == Tag.CASE_STATEMENT:
+        # If the condition is a case statement, see if case items contain
+        # variables.
+        for case_item in get_case_item_tree(subtree)["children"]:
+          expr_list = case_item["children"][0]
+          assert expr_list["tag"] in [Tag.EXPRESSION_LIST, Tag.DEFAULT], (
+              f"{expr_list['tag']} is not an expected type of node.")
+          ids |= get_symbol_idendifiers_in_tree(expr_list, self.rtl_content)
+    self.condition_vars = ids
+
+  def update_assigned_vars(self):
+    """Find and update the vars assigned within always."""
+    assign_subtrees = find_subtree(self.verible_tree, Tag.ASSIGNMENTS)
+    ids = set()
+    # assert 0, assign_subtrees
+    for subtree in assign_subtrees:
+      lhs_subtree = subtree["children"][0]
+
+      assert lhs_subtree["tag"] == "kLPValue", (
+          f"{lhs_subtree['tag']} is not an expected type of node.")
+      ids |= get_symbol_idendifiers_in_tree(lhs_subtree, self.rtl_content)
+    self.assigned_vars = ids
 
   def print_graph(self):
     """Print the graph of the always block."""
