@@ -5,8 +5,8 @@ __pycache__/
 reformatted/
 toolchains/
 spike/
-cdfg/parsed_rtl/*.tree
-cdfg/parsed_rtl/*.json
+designs/ibex_v1/parsed_rtl/*.tree
+designs/ibex_v1/parsed_rtl/*.json
 
 urgReport/
 branch_cov/

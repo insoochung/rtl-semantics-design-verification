@@ -4,10 +4,9 @@ import json
 from zipfile import ZipFile
 from glob import glob
 
-import config
 from utils import get_log_fn
 
-def get_verible_parsed_rtl(parsed_dir=config.PARSED_RTL_DIR,
+def get_verible_parsed_rtl(parsed_dir,
                            orig_dir=None,
                            verbose=True):
   """Return a dict of parsed verible json trees each read as a dict
@@ -54,6 +53,3 @@ def get_verible_parsed_rtl(parsed_dir=config.PARSED_RTL_DIR,
   log_fn(f"-- End: files parsed in {parsed_dir} --")
 
   return res
-
-if __name__ == "__main__":
-  parsed_rtl = get_verible_parsed_rtl()
