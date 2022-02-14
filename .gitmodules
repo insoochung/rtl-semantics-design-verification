@@ -4,6 +4,6 @@
 [submodule "riscv-isa-sim"]
 	path = riscv-isa-sim
 	url = https://github.com/lowRISC/riscv-isa-sim.git
-[submodule "parser/verible"]
-	path = cdfg/verible
-	url = https://github.com/chipsalliance/verible
+[submodule "third_party/verible"]
+	path = third_party/verible
+	url = https://github.com/chipsalliance/verible.git
