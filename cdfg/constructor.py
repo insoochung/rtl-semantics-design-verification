@@ -14,7 +14,6 @@ if __name__ == "__main__":
   parser.add_argument("-rd", "--rtl_dir", required=True,
     help="Directory where the original RTL files are located")
   args = parser.parse_args()
-  print(args)
   parsed_rtl = get_verible_parsed_rtl(
     args.parsed_rtl_dir, orig_dir=args.rtl_dir)
   for filepath, verible_tree in parsed_rtl.items():

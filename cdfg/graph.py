@@ -360,6 +360,34 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
   start_node, end_node = get_start_end_node(nodes)
   return start_node, end_node
 
+def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int=0):
+  """Construct always node and its children nodes."""
+  always_node = AlwaysNode(verible_tree, rtl_content, block_depth)
+  children = always_node.verible_tree["children"]
+  assert len(children) == 2
+  if always_node.type in ["always_ff", "always"]:
+    content = children[1]["children"]
+    assert len(content) == 2
+    condition, seq_block = content[0], content[1]
+    assert condition["tag"] == Tag.ALWAYS_CONDITION
+    always_node.condition = get_subtree_text_info(
+        condition, always_node.rtl_content)["text"]
+  else:
+    assert always_node.type in ["always_comb", "always_latch"], (
+        f"Unknown '{always_node.type}' type.")
+    seq_block = children[1]
+  assert seq_block["tag"] == Tag.SEQ_BLOCK
+  block_nodes = construct_block(
+      seq_block, always_node.rtl_content,
+      block_depth=always_node.block_depth + 1)
+  assert block_nodes, "Seq block is empty."
+  # Arbitrary end always_node.
+  always_node.end_node = EndNode(block_depth=always_node.block_depth)
+  connect_nodes(always_node, block_nodes[0])
+  connect_nodes(block_nodes[-1], always_node.end_node)
+  always_node.print_graph()
+  return always_node
+
 
 class RtlFile:
   """Class to manage a RTL file.
@@ -408,8 +436,10 @@ class Module:
   def construct_always_graphs(self):
     """Construct all graphs of always blocks found in the module."""
     always_subtrees = find_subtree(self.verible_tree, Tag.ALWAYS)
-    self.always_graphs = [AlwaysNode(t, self.rtl_content)
-                          for t in always_subtrees]
+    for t in always_subtrees:
+      always_node = construct_always_node(t, self.rtl_content)
+      self.always_graphs.append(always_node)
+
 
 
 class Node:
@@ -600,32 +630,6 @@ class AlwaysNode(Node):
     self.type = self.verible_tree["children"][0]["tag"]
     assert "always" in self.type, (
         f"{self.type} is not a inspected type of node.")
-    self.construct_node()
-
-  def construct_node(self):
-    """Construct the node according to the verible tree."""
-    children = self.verible_tree["children"]
-    assert len(children) == 2
-    if self.type in ["always_ff", "always"]:
-      content = children[1]["children"]
-      assert len(content) == 2
-      condition, seq_block = content[0], content[1]
-      assert condition["tag"] == Tag.ALWAYS_CONDITION
-      self.condition = get_subtree_text_info(
-          condition, self.rtl_content)["text"]
-    else:
-      assert self.type in ["always_comb", "always_latch"], (
-          f"Unknown '{self.type}' type.")
-      seq_block = children[1]
-    assert seq_block["tag"] == Tag.SEQ_BLOCK
-    nodes = construct_block(
-        seq_block, self.rtl_content, block_depth=self.block_depth + 1)
-    assert nodes, "Seq block is empty."
-    # Arbitrary end node.
-    self.end_node = EndNode(block_depth=self.block_depth)
-    connect_nodes(self, nodes[0])
-    connect_nodes(nodes[-1], self.end_node)
-    self.print_graph()
 
   def print_graph(self):
     """Print the graph of the always block."""
