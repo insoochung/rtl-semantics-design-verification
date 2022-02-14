@@ -1,4 +1,5 @@
-lark>=1.0.0
+lark
 tqdm
-yaml
+PyYaml
 junit_xml
+beautifulsoup4

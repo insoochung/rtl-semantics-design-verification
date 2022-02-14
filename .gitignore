@@ -1,7 +1,12 @@
 .vscode/
 __pycache__/
+.DS_Store
+
 reformatted/
 toolchains/
 spike/
-parser/parsed_rtl/*.tree
-parser/parsed_rtl/*.json
+cdfg/parsed_rtl/*.tree
+cdfg/parsed_rtl/*.json
+
+urgReport/
+branch_cov/
