@@ -1,131 +1,52 @@
 import re
 from typing import List, Union
+from constants import Tag, Condition
 
-from utils import get_indent_str, preprocess_rtl_str
-
-
-class Tag:
-  MODULE = "kModuleDeclaration"
-  ALWAYS = "kAlwaysStatement"
-  ALWAYS_CONTENT = "kProceduralTimingControlStatement"
-  ALWAYS_CONDITION = "kEventControl"
-  TERNARY_EXPRESSION = "kConditionExpression"
-  IF_ELSE_STATEMENT = "kConditionalStatement"
-  IF_CLAUSE = "kIfClause"
-  IF_HEADER = "kIfHeader"
-  IF_BODY = "kIfBody"
-  ELSE_CLAUSE = "kElseClause"
-  ELSE_BODY = "kElseBody"
-  CASE_STATEMENT = "kCaseStatement"
-  FOR_LOOP_STATEMENT = "kForLoopStatement"
-  FOR_LOOP_CONDITION = "kLoopHeader"
-  SEQ_BLOCK = "kSeqBlock"
-  BLOCK_ITEM_LIST = "kBlockItemStatementList"
-  STATEMENT = "kStatement"
-
-  NULL_STATEMENT = "kNullStatement"
-  CASE_ITEM_LIST = "kCaseItemList"
-  EXPRESSION_LIST = "kExpressionList"
-  EXPRESSION = "kExpression"
-  UNARY_EXPRESSION = "kUnaryExpression"
-  UNARY_PREFIX_EXPRESSION = "kUnaryPrefixExpression"
-  BINARY_EXPRESSION = "kBinaryExpression"
-  CONCATENATE_EXPRESSION = "kConcatenationExpression"
-  NUMBER = "kNumber"
-  REFERENCE = "kReferenceCallBase"
-  SYMBOL_IDENTIFIER = "SymbolIdentifier"
-  LVALUE = "kLPValue"
-  PARENTHESIS_GROUP = "kParenGroup"
-
-  # Assignments
-  ASSIGNMENT = "kNetVariableAssignment"
-  ASSIGNMENT_MODIFY = "kAssignModifyStatement"
-  NON_BLOCKING_ASSIGNMENT = "kNonblockingAssignmentStatement"
-
-  # Keywords
-  BEGIN = "kBegin"
-  END = "kEnd"
-  DEFAULT = "default"
-  UNIQUE = "unique"
-  CASE = "case"
-  CASEZ = "casez"
-  ENDCASE = "endcase"
-  COLON = ":"
-  SEMICOLON = ";"
-  ASSIGN = "="
-  ASSIGN_NONBLOCK = "<="
-
-  # Categories
-  BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT, TERNARY_EXPRESSION]
-  CONDITION_STATEMENTS = [IF_HEADER, CASE_STATEMENT]
-  BLOCK_STATEMENTS = BRANCH_STATEMENTS + [SEQ_BLOCK, FOR_LOOP_STATEMENT]
-  TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY,
-                         NON_BLOCKING_ASSIGNMENT, STATEMENT, NULL_STATEMENT]
-  ASSIGNMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
-  ASSIGN_OPERATORS = [ASSIGN, ASSIGN_NONBLOCK]
-  EXPRESSIONS = [EXPRESSION, UNARY_EXPRESSION, BINARY_EXPRESSION, REFERENCE,
-                 CONCATENATE_EXPRESSION, NUMBER, PARENTHESIS_GROUP,
-                 UNARY_PREFIX_EXPRESSION]
+from utils import (get_indent_str,
+                   preprocess_rtl_str,
+                   find_subtree,
+                   get_subtree_text_info,
+                   get_subtree_text,
+                   get_leftmost_node,
+                   get_rightmost_node)
 
 
-class Condition:
-  TRUE = "true"
-  FALSE = "false"
-  DEFAULT = "default"
-  DATA = "data"
+def _get_symbol_idendifiers_in_tree(verible_tree: dict, rtl_content: str,
+                                   ignore_indexing_variables: bool = True,
+                                   ignore_object_attributes: bool = True,
+                                   ignore_constants: bool = True):
+  """Return a list of symbol identifiers in the verible tree."""
+  ret = set()
+  for t in find_subtree(verible_tree, Tag.SYMBOL_IDENTIFIER):
+    cand_var = get_subtree_text(t, rtl_content)
+    ret.add(cand_var)
+
+  if ignore_indexing_variables:
+    for t in find_subtree(verible_tree, "kDimensionScalar"):
+      ret -= _get_symbol_idendifiers_in_tree(t,
+                                            rtl_content, False, False, False)
+  if ignore_object_attributes:
+    for t in find_subtree(verible_tree, "kHierarchyExtension"):
+      ret -= _get_symbol_idendifiers_in_tree(t,
+                                            rtl_content, False, False, False)
+  if ignore_constants:
+    constants = set()
+    for v in ret:
+      if v.isupper():  # Assumes all uppercase names for constants.
+        constants.add(v)
+    ret -= constants
+  return ret
 
 
-def print_tags(verible_tree: dict, indent_size: int = 0):
-  """Print the tags of the verible tree
-
-  Args:
-  verible_tree -- the verible tree to print the tags of (dict)
-  """
-  if verible_tree is None:
-    return
-  if "tag" in verible_tree.keys():
-    print(get_indent_str(indent_size), verible_tree["tag"])
-  if "children" in verible_tree.keys():
-    for c in verible_tree["children"]:
-      print_tags(c, indent_size + 2)
-  elif "tree" in verible_tree.keys():
-    print_tags(verible_tree["tree"], indent_size + 2)
+def _get_start_end_node(nodes: Union[tuple, list]):
+  """Get real start and end nodes of a block."""
+  start_node = get_leftmost_node(nodes)
+  end_node = get_rightmost_node(nodes)
+  assert isinstance(start_node, Node) and isinstance(end_node, Node)
+  return start_node, end_node
 
 
-def flatten_tree(verible_tree: dict):
-  """DFS-traverse verible tree and return the flattened tree."""
-  if verible_tree is None:
-    return []
-  if "children" in verible_tree.keys():
-    res = []
-    for c in verible_tree["children"]:
-      res += flatten_tree(c)
-    return res
-  if "tree" in verible_tree.keys():
-    return flatten_tree(verible_tree["tree"])
-  return [verible_tree]
-
-
-def find_subtree(verible_tree: dict, tags: List[str]):
-  """Return a subtree of verible_tree with the given tag."""
-  if verible_tree is None:
-    return []
-  if not isinstance(tags, list):
-    tags = [tags]
-  if "tag" in verible_tree.keys():
-    if verible_tree["tag"] in tags:
-      return [verible_tree]
-  if "children" in verible_tree.keys():
-    res = []
-    for c in verible_tree["children"]:
-      res += find_subtree(c, tags)
-    return res
-  if "tree" in verible_tree.keys():
-    return find_subtree(verible_tree["tree"], tags)
-  return []
-
-
-def get_branch_condition_tree(branch_tree: dict):
+def _get_branch_condition_tree(branch_tree: dict):
   """Return the condition expression tree of a conditional statement."""
   tag = branch_tree["tag"]
   assert tag in Tag.CONDITION_STATEMENTS + [Tag.TERNARY_EXPRESSION], (
@@ -145,7 +66,7 @@ def get_branch_condition_tree(branch_tree: dict):
   return condition_tree
 
 
-def get_case_item_tree(case_statement_tree: dict):
+def _get_case_item_tree(case_statement_tree: dict):
   """Return the case item tree of a case statement."""
   assert case_statement_tree["tag"] == Tag.CASE_STATEMENT
   children = case_statement_tree["children"]
@@ -153,71 +74,7 @@ def get_case_item_tree(case_statement_tree: dict):
   return children[3]
 
 
-def get_subtree_text_info(verible_tree: dict, rtl_content: str):
-  """Return tuple of form (start_pos, end_pos, text) of the subtree."""
-  l = flatten_tree(verible_tree)
-  start, end = l[0]["start"], l[-1]["end"]
-  ret = {}
-  ret["text"] = rtl_content[start:end]
-  ret["start"], ret["end"] = start, end
-  return ret
-
-
-def get_subtree_text(verible_tree: dict, rtl_content: str):
-  """Return text of the subtree."""
-  return get_subtree_text_info(verible_tree, rtl_content)["text"]
-
-
-def get_symbol_idendifiers_in_tree(verible_tree: dict, rtl_content: str,
-                                   ignore_indexing_variables: bool = True,
-                                   ignore_object_attributes: bool = True,
-                                   ignore_constants: bool = True):
-  """Return a list of symbol identifiers in the verible tree."""
-  ret = set()
-  for t in find_subtree(verible_tree, Tag.SYMBOL_IDENTIFIER):
-    cand_var = get_subtree_text(t, rtl_content)
-    ret.add(cand_var)
-
-  if ignore_indexing_variables:
-    for t in find_subtree(verible_tree, "kDimensionScalar"):
-      ret -= get_symbol_idendifiers_in_tree(t,
-                                            rtl_content, False, False, False)
-  if ignore_object_attributes:
-    for t in find_subtree(verible_tree, "kHierarchyExtension"):
-      ret -= get_symbol_idendifiers_in_tree(t,
-                                            rtl_content, False, False, False)
-  if ignore_constants:
-    constants = set()
-    for v in ret:
-      if v.isupper():  # Assumes all uppercase names for constants.
-        constants.add(v)
-    ret -= constants
-  return ret
-
-
-def get_leftmost_node(nodes: Union[tuple, list]):
-  """Get the leftmost node of a block."""
-  if isinstance(nodes, tuple) or isinstance(nodes, list):
-    return get_leftmost_node(nodes[0])
-  return nodes
-
-
-def get_rightmost_node(nodes: Union[tuple, list]):
-  """Get the rightmost node of a block."""
-  if isinstance(nodes, tuple) or isinstance(nodes, list):
-    return get_rightmost_node(nodes[-1])
-  return nodes
-
-
-def get_start_end_node(nodes: Union[tuple, list]):
-  """Get real start and end nodes of a block."""
-  start_node = get_leftmost_node(nodes)
-  end_node = get_rightmost_node(nodes)
-  assert isinstance(start_node, Node) and isinstance(end_node, Node)
-  return start_node, end_node
-
-
-def connect_nodes(node: "Node", next_node: "Node",
+def _connect_nodes(node: "Node", next_node: "Node",
                   condition=None):
   """Connect two nodes."""
   node = get_rightmost_node(node)
@@ -291,9 +148,9 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
                                   block_depth=block_depth + 1)
     if_nodes = [if_node]
   # Connect if-body node to branch node.
-  connect_nodes(branch_node, if_nodes[0], condition=Condition.TRUE)
+  _connect_nodes(branch_node, if_nodes[0], condition=Condition.TRUE)
   # Connect if-body node to end node.
-  connect_nodes(if_nodes[-1], end_node)
+  _connect_nodes(if_nodes[-1], end_node)
   nodes += if_nodes
 
   # Construct else-body node.
@@ -308,12 +165,12 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
     else_nodes = construct_block(
         block_node, rtl_content, block_depth=block_depth + 1)
     # Connect else-body node to branch node.
-    connect_nodes(branch_node, else_nodes[0], condition=Condition.FALSE)
+    _connect_nodes(branch_node, else_nodes[0], condition=Condition.FALSE)
     # Connect else-body node to end node.
-    connect_nodes(else_nodes[-1], end_node)
+    _connect_nodes(else_nodes[-1], end_node)
     nodes += else_nodes
   else:  # If there is no else clause, connect the branch node to the end node.
-    connect_nodes(branch_node, end_node, condition=Condition.FALSE)
+    _connect_nodes(branch_node, end_node, condition=Condition.FALSE)
   nodes.append(end_node)
 
   return nodes
@@ -339,7 +196,7 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   # Construct case-item-list node.
   default_node = None
   nodes = []
-  for case_item in get_case_item_tree(verible_tree)["children"]:
+  for case_item in _get_case_item_tree(verible_tree)["children"]:
     children = case_item["children"]
     children_tags = [c["tag"] for c in children]
     assert len(children) == 3
@@ -358,9 +215,9 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
     condition = get_subtree_text(children[0], rtl_content)
     condition = preprocess_rtl_str(condition, no_space=True)
     conditions = re.split(r',\s*(?![^{}]*\})', condition)
-    connect_nodes(branch_node, node, condition=conditions)
+    _connect_nodes(branch_node, node, condition=conditions)
     # Connect case-item-list node to end node.
-    connect_nodes(node, end_node)
+    _connect_nodes(node, end_node)
     nodes.append(node)
     if children_tags[0] == Tag.DEFAULT:
       assert default_node is None, "Multiple default cases"
@@ -378,7 +235,7 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
     default_node.lead_condition = f"!({' || '.join(non_default_conds)})"
   else:
     # Connect branch node to end node.
-    connect_nodes(branch_node, end_node)
+    _connect_nodes(branch_node, end_node)
 
   return branch_node, end_node
 
@@ -399,7 +256,7 @@ def construct_for_loop_statement(verible_tree: dict, rtl_content: str,
   nodes = construct_block(children[1], rtl_content,
                           block_depth=block_depth + 1)
   # Connect sequence block nodes to start node.
-  connect_nodes(start_node, nodes[0])
+  _connect_nodes(start_node, nodes[0])
   return start_node, nodes[-1]
 
 
@@ -447,11 +304,11 @@ def construct_statement_with_ternary_cond(verible_tree: dict, rtl_content: str,
   end_node = Node(verible_tree, rtl_content=rtl_content,
                   block_depth=block_depth)
   # Connect them all together.
-  connect_nodes(start_node, branch_node)
-  connect_nodes(branch_node, nodes[Condition.TRUE], condition=Condition.TRUE)
-  connect_nodes(branch_node, nodes[Condition.FALSE], condition=Condition.FALSE)
-  connect_nodes(nodes[Condition.TRUE], end_node)
-  connect_nodes(nodes[Condition.FALSE], end_node)
+  _connect_nodes(start_node, branch_node)
+  _connect_nodes(branch_node, nodes[Condition.TRUE], condition=Condition.TRUE)
+  _connect_nodes(branch_node, nodes[Condition.FALSE], condition=Condition.FALSE)
+  _connect_nodes(nodes[Condition.TRUE], end_node)
+  _connect_nodes(nodes[Condition.FALSE], end_node)
 
   # Update text to have no overlaps
   start_node.set_end(branch_node.start - 1)
@@ -523,9 +380,9 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
   for i, n in enumerate(nodes):  # Connect nodes
     if i == 0:
       continue
-    connect_nodes(nodes[i - 1], n)
+    _connect_nodes(nodes[i - 1], n)
 
-  start_node, end_node = get_start_end_node(nodes)
+  start_node, end_node = _get_start_end_node(nodes)
   return start_node, end_node
 
 
@@ -552,10 +409,10 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   assert block_nodes, "Seq block is empty."
   # Arbitrary end always_node.
   always_node.end_node = EndNode(block_depth=always_node.block_depth)
-  connect_nodes(always_node, block_nodes[0])
-  connect_nodes(block_nodes[-1], always_node.end_node)
+  _connect_nodes(always_node, block_nodes[0])
+  _connect_nodes(block_nodes[-1], always_node.end_node)
   # Loop back to the start node.
-  connect_nodes(always_node.end_node, always_node)
+  _connect_nodes(always_node.end_node, always_node)
 
   always_node.update_condition_vars()
   always_node.update_assigned_vars()
@@ -622,9 +479,9 @@ class Module:
       for j in range(i + 1, num_always):
         x, y = self.always_graphs[i], self.always_graphs[j]
         if x.assigned_vars & y.condition_vars:
-          connect_nodes(x.end_node, y, condition=Condition.DATA)
+          _connect_nodes(x.end_node, y, condition=Condition.DATA)
         if x.condition_vars & y.assigned_vars:
-          connect_nodes(y.end_node, x, condition=Condition.DATA)
+          _connect_nodes(y.end_node, x, condition=Condition.DATA)
 
 
 class Node:
@@ -678,8 +535,8 @@ class Node:
       prefix += f" @L{self.line_num}"
     if self.condition:
       prefix += f" / cond.: {self.condition}"
-    if self.lead_condition:
-      prefix += f" / lead cond.: {self.lead_condition}"
+    # if self.lead_condition:
+    #   prefix += f" / lead cond.: {self.lead_condition}"
     if self.condition_vars:
       prefix += f" / cond. vars: {self.condition_vars}"
     if self.assigned_vars:
@@ -828,7 +685,7 @@ class BranchNode(Node):
 
   def update_condition(self):
     """Update the condition of the node if it is a branch node."""
-    condition_tree = get_branch_condition_tree(self.verible_tree)
+    condition_tree = _get_branch_condition_tree(self.verible_tree)
     text_info = get_subtree_text_info(
         condition_tree, self.rtl_content)
     self.condition = " ".join(text_info["text"].split())
@@ -850,17 +707,17 @@ class AlwaysNode(Node):
                                         Tag.CONDITION_STATEMENTS)
     ids = set()
     for subtree in conditional_subtrees:
-      condition_tree = get_branch_condition_tree(subtree)
-      ids |= get_symbol_idendifiers_in_tree(condition_tree, self.rtl_content)
+      condition_tree = _get_branch_condition_tree(subtree)
+      ids |= _get_symbol_idendifiers_in_tree(condition_tree, self.rtl_content)
 
       if subtree["tag"] == Tag.CASE_STATEMENT:
         # If the condition is a case statement, see if case items contain
         # variables.
-        for case_item in get_case_item_tree(subtree)["children"]:
+        for case_item in _get_case_item_tree(subtree)["children"]:
           expr_list = case_item["children"][0]
           assert expr_list["tag"] in [Tag.EXPRESSION_LIST, Tag.DEFAULT], (
               f"{expr_list['tag']} is not an expected type of node.")
-          ids |= get_symbol_idendifiers_in_tree(expr_list, self.rtl_content)
+          ids |= _get_symbol_idendifiers_in_tree(expr_list, self.rtl_content)
     self.condition_vars = ids
 
   def update_assigned_vars(self):
@@ -871,7 +728,7 @@ class AlwaysNode(Node):
       lhs_subtree = subtree["children"][0]
       assert lhs_subtree["tag"] == Tag.LVALUE, (
           f"{lhs_subtree['tag']} is not an expected type of node.")
-      ids |= get_symbol_idendifiers_in_tree(lhs_subtree, self.rtl_content)
+      ids |= _get_symbol_idendifiers_in_tree(lhs_subtree, self.rtl_content)
     self.assigned_vars = ids
 
   def print_graph(self):

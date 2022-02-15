@@ -6,6 +6,7 @@ from glob import glob
 
 from utils import get_log_fn
 
+
 def get_verible_parsed_rtl(parsed_dir,
                            orig_dir=None,
                            verbose=True):
@@ -29,7 +30,7 @@ def get_verible_parsed_rtl(parsed_dir,
     zip = glob(f"{parsed_dir}/*.zip")
     log_fn(f"No json files found in {parsed_dir}, attempting to unzip {zip}")
     assert len(zip) == 1, (
-      f"Only one zip file should be present: {zip}")
+        f"Only one zip file should be present: {zip}")
     zip = zip[0]
     with ZipFile(zip, "r") as z:
       z.extractall(parsed_dir)
@@ -42,8 +43,8 @@ def get_verible_parsed_rtl(parsed_dir,
       log_fn(f"Reading {json_filepath}")
       j = json.load(file)
       assert len(j.keys()) == 1, (
-        f"Only one root key of path to original RTL file should be present: "
-        f"{j.keys()}")
+          f"Only one root key of path to original RTL file should be present: "
+          f"{j.keys()}")
       key = list(j.keys())[0]
       orig_filepath = key
       if orig_dir is not None:
