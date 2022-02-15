@@ -24,9 +24,16 @@ class Tag:
   NULL_STATEMENT = "kNullStatement"
   CASE_ITEM_LIST = "kCaseItemList"
   EXPRESSION_LIST = "kExpressionList"
+  EXPRESSION = "kExpression"
+  UNARY_EXPRESSION = "kUnaryExpression"
+  UNARY_PREFIX_EXPRESSION = "kUnaryPrefixExpression"
+  BINARY_EXPRESSION = "kBinaryExpression"
+  CONCATENATE_EXPRESSION = "kConcatenationExpression"
+  NUMBER = "kNumber"
+  REFERENCE = "kReferenceCallBase"
 
   SYMBOL_IDENTIFIER = "SymbolIdentifier"
-
+  LVALUE = "kLPValue"
   PARENTHESIS_GROUP = "kParenGroup"
 
   # Assignments
@@ -43,19 +50,23 @@ class Tag:
   CASEZ = "casez"
   ENDCASE = "endcase"
   COLON = ":"
+  SEMICOLON = ";"
+  ASSIGN = "="
+  ASSIGN_NONBLOCK = "<="
 
   # Categories
-  # TODO: Handle ternary expressions.
-  # BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT, TERNARY_EXPRESSION]
-  BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT]
+  BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT, TERNARY_EXPRESSION]
   CONDITION_STATEMENTS = [IF_HEADER, CASE_STATEMENT]
   BLOCK_STATEMENTS = BRANCH_STATEMENTS + [SEQ_BLOCK]
   # TODO: Add separate handling of for loops.
-  # TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
   TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY,
                          NON_BLOCKING_ASSIGNMENT, FOR_LOOP_STATEMENT,
                          STATEMENT, NULL_STATEMENT]
   ASSIGNMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
+  ASSIGN_OPERATORS = [ASSIGN, ASSIGN_NONBLOCK]
+  EXPRESSIONS = [EXPRESSION, UNARY_EXPRESSION, BINARY_EXPRESSION, REFERENCE,
+                 CONCATENATE_EXPRESSION, NUMBER, PARENTHESIS_GROUP,
+                 UNARY_PREFIX_EXPRESSION]
 
 
 class Condition:
@@ -118,14 +129,20 @@ def find_subtree(verible_tree: dict, tags: List[str]):
 def get_branch_condition_tree(branch_tree: dict):
   """Return the condition expression tree of a conditional statement."""
   tag = branch_tree["tag"]
-  assert tag in Tag.CONDITION_STATEMENTS, (
-      f"{tag} is not a condition statement.")
+  assert tag in Tag.CONDITION_STATEMENTS + [Tag.TERNARY_EXPRESSION], (
+      f"{tag} is does not have an innate condition.")
   children = branch_tree["children"]
   if tag == Tag.IF_HEADER:
     condition_tree = children[-1]
-  else:  # Tag.CASE_STATEMENT
+    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+  elif tag == Tag.CASE_STATEMENT:
     condition_tree = children[2]
-  assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+  elif tag == Tag.TERNARY_EXPRESSION:
+    condition_tree = children[0]
+  else:
+    assert 0, f"Cannot extract branch node from {tag}"
+
   return condition_tree
 
 
@@ -147,6 +164,11 @@ def get_subtree_text_info(verible_tree: dict, rtl_content: str):
   return ret
 
 
+def get_subtree_text(verible_tree: dict, rtl_content: str):
+  """Return text of the subtree."""
+  return get_subtree_text_info(verible_tree, rtl_content)["text"]
+
+
 def get_symbol_idendifiers_in_tree(verible_tree: dict, rtl_content: str,
                                    ignore_indexing_variables: bool = True,
                                    ignore_object_attributes: bool = True,
@@ -154,7 +176,7 @@ def get_symbol_idendifiers_in_tree(verible_tree: dict, rtl_content: str,
   """Return a list of symbol identifiers in the verible tree."""
   ret = set()
   for t in find_subtree(verible_tree, Tag.SYMBOL_IDENTIFIER):
-    cand_var = get_subtree_text_info(t, rtl_content)["text"]
+    cand_var = get_subtree_text(t, rtl_content)
     ret.add(cand_var)
 
   if ignore_indexing_variables:
@@ -213,12 +235,24 @@ def connect_nodes(node: "Node", next_node: "Node",
   node.add_next_node(next_node, condition)
 
 
+def construct_statement(verible_tree: dict, rtl_content: str,
+                        block_depth: int = 0):
+  if (is_ternary_assignment(verible_tree)
+          or is_ternary_expression(verible_tree)):
+    return construct_statement_with_ternary_cond(verible_tree, rtl_content,
+                                                 block_depth=block_depth)
+  else:
+    return construct_terminal(verible_tree, rtl_content,
+                              block_depth=block_depth)
+
+
 def construct_terminal(verible_tree: dict, rtl_content: str,
                        block_depth: int = 0):
   """Construct assignments from the verible tree."""
   tag = verible_tree["tag"]
-  assert tag in Tag.TERMINAL_STATEMENTS, (
-      f"Cannot construct assignment from {tag}")
+  assert tag in Tag.TERMINAL_STATEMENTS + Tag.EXPRESSIONS, (
+      f"Cannot construct assignment from "
+      f"({get_subtree_text(verible_tree, rtl_content)} / {tag})")
   # Handle assignment without conditional statements.
   node = Node(verible_tree, rtl_content, block_depth=block_depth)
   return node
@@ -254,8 +288,8 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
     if_nodes = construct_block(
         block_node, rtl_content, block_depth=block_depth + 1)
   else:  # Tag.TERMINAL_STATEMENTS
-    if_node = construct_terminal(block_node, rtl_content,
-                                 block_depth=block_depth + 1)
+    if_node = construct_statement(block_node, rtl_content,
+                                  block_depth=block_depth + 1)
     if_nodes = [if_node]
   # Connect if-body node to branch node.
   connect_nodes(branch_node, if_nodes[0], condition=Condition.TRUE)
@@ -318,10 +352,11 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
     if children_tags[2] in Tag.BLOCK_STATEMENTS:
       node = construct_block(node, rtl_content, block_depth=block_depth + 1)
     else:  # Tag.TERMINAL_STATEMENTS
-      node = construct_terminal(node, rtl_content, block_depth=block_depth + 1)
+      node = construct_statement(
+          node, rtl_content, block_depth=block_depth + 1)
     # Connect case-item-list node to branch node.
     # Process case conditions
-    condition = get_subtree_text_info(children[0], rtl_content)["text"]
+    condition = get_subtree_text(children[0], rtl_content)
     condition = preprocess_rtl_str(condition, no_space=True)
     conditions = re.split(r',\s*(?![^{}]*\})', condition)
     connect_nodes(branch_node, node, condition=conditions)
@@ -348,6 +383,63 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
 
   return branch_node, end_node
 
+
+def is_ternary_assignment(verible_tree: dict):
+  """Check if the verible tree is ternary assignment"""
+  return (verible_tree["tag"] in Tag.ASSIGNMENTS
+          and find_subtree(verible_tree, Tag.TERNARY_EXPRESSION))
+
+
+def is_ternary_expression(verible_tree: dict):
+  """Check if the verible tree is ternary expression"""
+  return (verible_tree["tag"] in Tag.EXPRESSIONS
+          and find_subtree(verible_tree, Tag.TERNARY_EXPRESSION))
+
+
+def construct_statement_with_ternary_cond(verible_tree: dict, rtl_content: str,
+                                          block_depth: int = 0):
+  """Construct ternary assignment from verible tree"""
+  assert (is_ternary_assignment(verible_tree)
+          or is_ternary_expression(verible_tree))
+  tag = verible_tree["tag"]
+  all_ternary_trees = find_subtree(verible_tree, Tag.TERNARY_EXPRESSION)
+  assert len(all_ternary_trees) == 1, (
+      f"{get_subtree_text(verible_tree, rtl_content)}\n"
+      f"-> Multiple ternary expressions within one assignment not "
+      f"handled.")
+
+  # Construct ternary expression.
+  ternary_tree = all_ternary_trees[0]
+  branch_node = BranchNode(verible_tree=ternary_tree, rtl_content=rtl_content,
+                           block_depth=block_depth)
+  trees = {
+      Condition.TRUE: ternary_tree["children"][2],
+      Condition.FALSE: ternary_tree["children"][4]
+  }
+  nodes = {}
+  for cond, tree in trees.items():
+    nodes[cond] = construct_statement(tree, rtl_content,
+                                      block_depth=block_depth + 1)
+
+  # Construct start and end nodes.
+  start_node = Node(verible_tree, rtl_content=rtl_content,
+                    block_depth=block_depth)
+
+  end_node = Node(verible_tree, rtl_content=rtl_content,
+                  block_depth=block_depth)
+  # Connect them all together.
+  connect_nodes(start_node, branch_node)
+  connect_nodes(branch_node, nodes[Condition.TRUE], condition=Condition.TRUE)
+  connect_nodes(branch_node, nodes[Condition.FALSE], condition=Condition.FALSE)
+  connect_nodes(nodes[Condition.TRUE], end_node)
+  connect_nodes(nodes[Condition.FALSE], end_node)
+
+  # Update text to have no overlaps
+  start_node.set_end(branch_node.start - 1)
+  end_node_start = max([p.end for p in end_node.prev_nodes] + [start_node.end])
+  end_node.set_start(end_node_start)
+
+  return start_node, end_node
 
 def construct_block(verible_tree: dict, rtl_content: str,
                     block_depth: int = 0):
@@ -388,7 +480,6 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
   for statement in statement_list["children"]:
     tag = statement["tag"]
     if tag in Tag.BRANCH_STATEMENTS:
-      # TODO: handle if-else, case statements correctly
       new_nodes = construct_block(statement, rtl_content,
                                   block_depth=block_depth)
 
@@ -397,12 +488,12 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
       new_nodes = construct_terminal(statement, rtl_content,
                                      block_depth=block_depth)
     elif tag in Tag.TERMINAL_STATEMENTS:
-      new_nodes = construct_terminal(statement, rtl_content,
-                                     block_depth=block_depth)
+      new_nodes = construct_statement(statement, rtl_content,
+                                      block_depth=block_depth)
     else:
       assert False, (
           f"Unsupported statement "
-          f"'{get_subtree_text_info(statement, rtl_content)['text']}' "
+          f"'{get_subtree_text(statement, rtl_content)}' "
           f"in sequence block.")
 
     nodes.append(new_nodes)
@@ -426,8 +517,8 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
     assert len(content) == 2
     condition, seq_block = content[0], content[1]
     assert condition["tag"] == Tag.ALWAYS_CONDITION
-    always_node.condition = get_subtree_text_info(
-        condition, always_node.rtl_content)["text"]
+    always_node.condition = get_subtree_text(
+        condition, always_node.rtl_content)
   else:
     assert always_node.type in ["always_comb", "always_latch"], (
         f"Unknown '{always_node.type}' type.")
@@ -458,6 +549,7 @@ class RtlFile:
   verible_tree -- the verible tree of the RTL file (dict)
   rtl_content -- the content of the RTL file (str)
   modules -- a list of Module objects (List(Module))
+  num_always_blocks -- sum of always blocks in all modules (int)
   """
 
   def __init__(self, verible_tree: dict, filepath: str):
@@ -468,6 +560,7 @@ class RtlFile:
       self.rtl_content = f.read()
     self.modules = []
     self.construct_modules()
+    self.num_always_blocks = sum([len(m.always_graphs) for m in self.modules])
 
   def construct_modules(self):
     """Construct all modules found in the file."""
@@ -553,7 +646,7 @@ class Node:
     self.end_node = None
     if verible_tree is not None:
       self.update_text_and_type()
-      self.update_line_number()
+      self.update_line_num()
     self.assigned_vars = set()
     self.condition_vars = set()
 
@@ -595,10 +688,23 @@ class Node:
       self.text = self.rtl_content[self.start:self.end]
     self.type = self.verible_tree["tag"]
 
-  def update_line_number(self):
+  def update_line_num(self):
     """Update the line number of the node."""
     assert self.rtl_content, "rtl_content must be set."
     self.line_num = self.rtl_content[:self.start].count("\n") + 1
+
+  def update_text(self):
+    self.text = self.rtl_content[self.start:self.end]
+
+  def set_start(self, start: int):
+    """Set the start of the node"""
+    self.start = start
+    self.update_text()
+
+  def set_end(self, end: int):
+    """Set the end of the node"""
+    self.end = end
+    self.update_text()
 
   def add_next_node(self, next_node: "Node",
                     next_condition: str = None):
@@ -741,7 +847,7 @@ class AlwaysNode(Node):
     ids = set()
     for subtree in assign_subtrees:
       lhs_subtree = subtree["children"][0]
-      assert lhs_subtree["tag"] == "kLPValue", (
+      assert lhs_subtree["tag"] == Tag.LVALUE, (
           f"{lhs_subtree['tag']} is not an expected type of node.")
       ids |= get_symbol_idendifiers_in_tree(lhs_subtree, self.rtl_content)
     self.assigned_vars = ids

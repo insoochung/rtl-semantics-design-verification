@@ -9,4 +9,4 @@ designs/ibex_v1/parsed_rtl/*.tree
 designs/ibex_v1/parsed_rtl/*.json
 
 urgReport/
-branch_cov/
+generated/
