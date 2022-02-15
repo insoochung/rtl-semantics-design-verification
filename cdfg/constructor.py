@@ -15,24 +15,6 @@ from utils import (preprocess_rtl_str,
                    get_case_item_tree)
 
 
-def construct_cdfgs(parsed_rtl_dir, rtl_dir, output_dir):
-  parsed_rtl = get_verible_parsed_rtl(parsed_rtl_dir,
-                                      orig_dir=rtl_dir)
-
-  os.makedirs(output_dir, exist_ok=True)
-  for filepath, verible_tree in parsed_rtl.items():
-    filename = os.path.basename(filepath)
-    print(f"-- Constructing CDFGs from: {filepath} --")
-    rtl_file_obj = RtlFile(verible_tree, filepath)
-    if rtl_file_obj.num_always_blocks == 0:
-      print(f"-- Skipping {filename} because it has no always blocks --\n")
-      continue
-    pkl_name = filename.replace(".sv", ".rtlfile.pkl")
-    with open(os.path.join(output_dir, pkl_name), "wb") as f:
-      pickle.dump(rtl_file_obj, f)
-    print(f"-- CDFGs successfully constructed! --\n")
-
-
 def _get_start_end_node(nodes: Union[tuple, list]):
   """Get real start and end nodes of a block."""
   start_node = get_leftmost_node(nodes)
@@ -387,6 +369,24 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   return always_node
 
 
+def construct_cdfgs_from_rtl(parsed_rtl_dir, rtl_dir, output_dir):
+  parsed_rtl = get_verible_parsed_rtl(parsed_rtl_dir,
+                                      orig_dir=rtl_dir)
+
+  os.makedirs(output_dir, exist_ok=True)
+  for filepath, verible_tree in parsed_rtl.items():
+    filename = os.path.basename(filepath)
+    print(f"-- Constructing CDFGs from: {filepath} --")
+    rtl_file_obj = RtlFile(verible_tree, filepath)
+    if rtl_file_obj.num_always_blocks == 0:
+      print(f"-- Skipping {filename} because it has no always blocks --\n")
+      continue
+    pkl_name = filename.replace(".sv", ".rtlfile.pkl")
+    with open(os.path.join(output_dir, pkl_name), "wb") as f:
+      pickle.dump(rtl_file_obj, f)
+    print(f"-- CDFGs successfully constructed! --\n")
+
+
 class RtlFile:
   """Class to manage a RTL file.
 
@@ -406,7 +406,20 @@ class RtlFile:
       self.rtl_content = f.read()
     self.modules = []
     self.construct_modules()
+    # Post module construction
     self.num_always_blocks = sum([len(m.always_graphs) for m in self.modules])
+    # Line up all nodes within RTL module
+    self.nodes = []
+    for m in self.modules:
+      self.nodes.extend(m.to_list())
+    # Create line number to nodes mapping
+    self.line_number_to_node = {}
+    for n in self.nodes:
+      line_num = n.line_num
+      if line_num not in self.line_number_to_node:
+        self.line_number_to_node[line_num] = []
+      self.line_number_to_node[line_num].append(n)
+    # TODO: line number to branches mapping
 
   def construct_modules(self):
     """Construct all modules found in the file."""
@@ -450,6 +463,13 @@ class Module:
         if x.condition_vars & y.assigned_vars:
           connect_nodes(y.end_node, x, condition=Condition.DATA)
 
+  def to_list(self):
+    """Return a list of all nodes in the module."""
+    ret = []
+    for g in self.always_graphs:
+      ret += g.to_list()
+    return ret
+
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
@@ -462,4 +482,4 @@ if __name__ == "__main__":
   parser.add_argument("-od", "--output_dir", default="generated/cdfgs",
                       help="Directory where parsed CDFGs are saved")
   args = parser.parse_args()
-  construct_cdfgs(**vars(args))
+  construct_cdfgs_from_rtl(**vars(args))
