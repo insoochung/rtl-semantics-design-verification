@@ -7,13 +7,12 @@ from typing import Union
 from constants import Tag, Condition
 from graph import Node, BranchNode, EndNode, AlwaysNode
 from parser import get_verible_parsed_rtl
-from utils import (
-    preprocess_rtl_str,
-    find_subtree,
-    get_subtree_text,
-    get_leftmost_node,
-    get_rightmost_node,
-    get_case_item_tree)
+from utils import (preprocess_rtl_str,
+                   find_subtree,
+                   get_subtree_text,
+                   get_leftmost_node,
+                   get_rightmost_node,
+                   get_case_item_tree)
 
 
 def construct_cdfgs(parsed_rtl_dir, rtl_dir, output_dir):
