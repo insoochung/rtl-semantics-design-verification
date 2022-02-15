@@ -18,9 +18,11 @@ class Tag:
   ELSE_BODY = "kElseBody"
   CASE_STATEMENT = "kCaseStatement"
   FOR_LOOP_STATEMENT = "kForLoopStatement"
+  FOR_LOOP_CONDITION = "kLoopHeader"
   SEQ_BLOCK = "kSeqBlock"
   BLOCK_ITEM_LIST = "kBlockItemStatementList"
   STATEMENT = "kStatement"
+
   NULL_STATEMENT = "kNullStatement"
   CASE_ITEM_LIST = "kCaseItemList"
   EXPRESSION_LIST = "kExpressionList"
@@ -31,7 +33,6 @@ class Tag:
   CONCATENATE_EXPRESSION = "kConcatenationExpression"
   NUMBER = "kNumber"
   REFERENCE = "kReferenceCallBase"
-
   SYMBOL_IDENTIFIER = "SymbolIdentifier"
   LVALUE = "kLPValue"
   PARENTHESIS_GROUP = "kParenGroup"
@@ -57,11 +58,9 @@ class Tag:
   # Categories
   BRANCH_STATEMENTS = [IF_ELSE_STATEMENT, CASE_STATEMENT, TERNARY_EXPRESSION]
   CONDITION_STATEMENTS = [IF_HEADER, CASE_STATEMENT]
-  BLOCK_STATEMENTS = BRANCH_STATEMENTS + [SEQ_BLOCK]
-  # TODO: Add separate handling of for loops.
+  BLOCK_STATEMENTS = BRANCH_STATEMENTS + [SEQ_BLOCK, FOR_LOOP_STATEMENT]
   TERMINAL_STATEMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY,
-                         NON_BLOCKING_ASSIGNMENT, FOR_LOOP_STATEMENT,
-                         STATEMENT, NULL_STATEMENT]
+                         NON_BLOCKING_ASSIGNMENT, STATEMENT, NULL_STATEMENT]
   ASSIGNMENTS = [ASSIGNMENT, ASSIGNMENT_MODIFY, NON_BLOCKING_ASSIGNMENT]
   ASSIGN_OPERATORS = [ASSIGN, ASSIGN_NONBLOCK]
   EXPRESSIONS = [EXPRESSION, UNARY_EXPRESSION, BINARY_EXPRESSION, REFERENCE,
@@ -384,6 +383,26 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   return branch_node, end_node
 
 
+def construct_for_loop_statement(verible_tree: dict, rtl_content: str,
+                                 block_depth: int = 0):
+  """Construct for loop statement from verible tree"""
+  tag = verible_tree["tag"]
+  assert tag == Tag.FOR_LOOP_STATEMENT
+  children = verible_tree["children"]
+  assert len(children) == 2
+  assert children[0]["tag"] == Tag.FOR_LOOP_CONDITION
+  assert children[1]["tag"] == Tag.SEQ_BLOCK
+  # Construct start_node
+  start_node = Node(verible_tree=verible_tree, rtl_content=rtl_content,
+                    block_depth=block_depth)
+  # Construct sequence block nodes.
+  nodes = construct_block(children[1], rtl_content,
+                          block_depth=block_depth + 1)
+  # Connect sequence block nodes to start node.
+  connect_nodes(start_node, nodes[0])
+  return start_node, nodes[-1]
+
+
 def is_ternary_assignment(verible_tree: dict):
   """Check if the verible tree is ternary assignment"""
   return (verible_tree["tag"] in Tag.ASSIGNMENTS
@@ -441,11 +460,12 @@ def construct_statement_with_ternary_cond(verible_tree: dict, rtl_content: str,
 
   return start_node, end_node
 
+
 def construct_block(verible_tree: dict, rtl_content: str,
                     block_depth: int = 0):
   """Construct block from the verible tree."""
   tag = verible_tree["tag"]
-  assert tag in [Tag.SEQ_BLOCK, Tag.IF_ELSE_STATEMENT, Tag.CASE_STATEMENT]
+  assert tag in Tag.BLOCK_STATEMENTS, f"{tag} is not a block statement"
 
   if tag == Tag.SEQ_BLOCK:
     return construct_seq_block(verible_tree, rtl_content,
@@ -456,6 +476,9 @@ def construct_block(verible_tree: dict, rtl_content: str,
   elif tag == Tag.CASE_STATEMENT:
     return construct_case_statement(verible_tree, rtl_content,
                                     block_depth=block_depth)
+  elif tag == Tag.FOR_LOOP_STATEMENT:
+    return construct_for_loop_statement(verible_tree, rtl_content,
+                                        block_depth=block_depth)
   else:
     assert 0, f"Cannot construct block from {tag}, not implemented."
 
@@ -484,9 +507,8 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
                                   block_depth=block_depth)
 
     elif tag == Tag.FOR_LOOP_STATEMENT:
-      # TODO: need to decide how to handle for loops with if statements inside
-      new_nodes = construct_terminal(statement, rtl_content,
-                                     block_depth=block_depth)
+      new_nodes = construct_block(statement, rtl_content,
+                                  block_depth=block_depth)
     elif tag in Tag.TERMINAL_STATEMENTS:
       new_nodes = construct_statement(statement, rtl_content,
                                       block_depth=block_depth)
