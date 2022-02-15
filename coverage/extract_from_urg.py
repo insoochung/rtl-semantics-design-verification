@@ -175,7 +175,8 @@ def main():
   parser.add_argument("-rd", "--report_dir", required=False,
                       help=("Path to the directory (e.g. urgReport) which "
                              "contains multiple coverage HTML reports"))
-  parser.add_argument("-od", "--output_dir", required=False,
+  parser.add_argument("-od", "--output_dir",
+                      default="generated/branch_cov",
                       help=("Path to the directory where the parsed coverage "
                              "YAML files will be written"))
 
