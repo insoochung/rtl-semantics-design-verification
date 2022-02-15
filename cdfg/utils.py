@@ -1,5 +1,6 @@
 import re
 from typing import List, Union
+from constants import Tag
 
 
 def get_log_fn(verbose=True):
@@ -114,3 +115,58 @@ def get_rightmost_node(nodes: Union[tuple, list]):
   if isinstance(nodes, tuple) or isinstance(nodes, list):
     return get_rightmost_node(nodes[-1])
   return nodes
+
+
+def get_symbol_identifiers_in_tree(verible_tree: dict, rtl_content: str,
+                                   ignore_indexing_variables: bool = True,
+                                   ignore_object_attributes: bool = True,
+                                   ignore_constants: bool = True):
+  """Return a list of symbol identifiers in the verible tree."""
+  ret = set()
+  for t in find_subtree(verible_tree, Tag.SYMBOL_IDENTIFIER):
+    cand_var = get_subtree_text(t, rtl_content)
+    ret.add(cand_var)
+
+  if ignore_indexing_variables:
+    for t in find_subtree(verible_tree, "kDimensionScalar"):
+      ret -= get_symbol_identifiers_in_tree(t,
+                                            rtl_content, False, False, False)
+  if ignore_object_attributes:
+    for t in find_subtree(verible_tree, "kHierarchyExtension"):
+      ret -= get_symbol_identifiers_in_tree(t,
+                                            rtl_content, False, False, False)
+  if ignore_constants:
+    constants = set()
+    for v in ret:
+      if v.isupper():  # Assumes all uppercase names for constants.
+        constants.add(v)
+    ret -= constants
+  return ret
+
+
+def get_branch_condition_tree(branch_tree: dict):
+  """Return the condition expression tree of a conditional statement."""
+  tag = branch_tree["tag"]
+  assert tag in Tag.CONDITION_STATEMENTS + [Tag.TERNARY_EXPRESSION], (
+      f"{tag} is does not have an innate condition.")
+  children = branch_tree["children"]
+  if tag == Tag.IF_HEADER:
+    condition_tree = children[-1]
+    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+  elif tag == Tag.CASE_STATEMENT:
+    condition_tree = children[2]
+    assert condition_tree["tag"] == Tag.PARENTHESIS_GROUP
+  elif tag == Tag.TERNARY_EXPRESSION:
+    condition_tree = children[0]
+  else:
+    assert 0, f"Cannot extract branch node from {tag}"
+
+  return condition_tree
+
+
+def get_case_item_tree(case_statement_tree: dict):
+  """Return the case item tree of a case statement."""
+  assert case_statement_tree["tag"] == Tag.CASE_STATEMENT
+  children = case_statement_tree["children"]
+  assert children[3]["tag"] == Tag.CASE_ITEM_LIST
+  return children[3]
