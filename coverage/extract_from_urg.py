@@ -112,11 +112,40 @@ def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
   assert len(tables) == len(code_lines), (
       f"Mismatch between number of tables and parsed data: "
       f"# tables({len(tables)}) != # code_lines({len(code_lines)})")
+
   for i, (table, code_line) in enumerate(zip(tables, code_lines)):
     yaml_entry = {}
-    line_num = re.search(r"([\d]+)", str(code_line)).group(1)
-    _idx = branch_dict["line_pos"].index(str(line_num))
-    yaml_entry["line_num"] = int(line_num)
+
+    # Extract line numbers of branch locations
+    line_nums = []
+    lines = str(code_line).split("\n")
+    prev_branch_num = 0
+    for i, line in enumerate(lines):
+      _line = line.strip()
+      font_tags = BeautifulSoup(_line, "html.parser").find_all("font")
+      if len(font_tags) == 0:
+        continue
+      assert len(font_tags) == 1 and len(font_tags[0].contents)
+      branch_num_cand = font_tags[0].contents[0].strip()
+      if not (branch_num_cand[0] == "-" and branch_num_cand[-1] == "-"
+              and branch_num_cand[1:-1].isnumeric()):
+        continue
+      branch_num = int(branch_num_cand[1:-1])
+      assert prev_branch_num == branch_num - 1, (
+          f"Branch number not in order: {branch_num} != {prev_branch_num + 1}")
+      prev_line = lines[i - 1]
+      line_nums.append(int(prev_line.split()[0]))
+      prev_branch_num = branch_num
+
+    # Get first line of the code snippet
+    init_code_line = -1
+    for l in str(code_line).split("\n"):
+      if l.split()[0].isnumeric():
+        init_code_line = l.split()[0]
+        break
+
+    _idx = branch_dict["line_pos"].index(init_code_line)
+    yaml_entry["line_num"] = [int(n) for n in line_nums]
     yaml_entry["branch_type"] = branch_dict["branch_type"][_idx]
     yaml_entry["coverage"] = []
     rows = table.find_all("tr")
