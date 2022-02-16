@@ -60,8 +60,8 @@ class Node:
       prefix += f" @L{self.line_num}"
     if self.condition:
       prefix += f" / cond.: {self.condition}"
-    # if self.lead_condition:
-    #   prefix += f" / lead cond.: {self.lead_condition}"
+    if self.lead_condition:
+      prefix += f" / lead cond.: {self.lead_condition}"
     if self.condition_vars:
       prefix += f" / cond. vars: {self.condition_vars}"
     if self.assigned_vars:
@@ -187,6 +187,14 @@ class Node:
       ret.extend(self.end_node.to_list())
     return ret
 
+  def print_block(self):
+    """Print the block starting from this node."""
+    l = self.to_list()
+    print()
+    for n in l:
+      print(get_indent_str(n.block_depth * 2) + str(n))
+    print()
+
 
 class EndNode(Node):
   """Node class that specifies an arbitrary end"""
@@ -257,9 +265,4 @@ class AlwaysNode(Node):
     self.assigned_vars = ids
 
   def print_graph(self):
-    """Print the graph of the always block."""
-    l = self.to_list()
-    print()
-    for n in l:
-      print(get_indent_str(n.block_depth * 2) + str(n))
-    print()
+    self.print_block()

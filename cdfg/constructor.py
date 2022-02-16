@@ -413,13 +413,14 @@ class RtlFile:
     for m in self.modules:
       self.nodes.extend(m.to_list())
     # Create line number to nodes mapping
-    self.line_number_to_node = {}
-    for n in self.nodes:
+    self.line_number_to_nodes = {}
+    self.node_to_index = {}
+    for i, n in enumerate(self.nodes):
       line_num = n.line_num
-      if line_num not in self.line_number_to_node:
-        self.line_number_to_node[line_num] = []
-      self.line_number_to_node[line_num].append(n)
-    # TODO: line number to branches mapping
+      if line_num not in self.line_number_to_nodes:
+        self.line_number_to_nodes[line_num] = []
+      self.line_number_to_nodes[line_num].append(n)
+      self.node_to_index[n] = i
 
   def construct_modules(self):
     """Construct all modules found in the file."""
