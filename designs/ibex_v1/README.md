@@ -30,7 +30,8 @@ apt-get install device-tree-compiler
 
 ```bash
 cd ibex/dv/uvm/core_ibex
-make SIMULATOR=vcs ISS=spike COV=1 # TODO: feed in randomized tests instead of the default testsets.
+
+make SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 # TODO: feed in randomized tests instead of the default testsets.
 
 # You can find URG coverage report below.
 ls out/rtl_sim/urgReport
