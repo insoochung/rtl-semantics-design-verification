@@ -120,21 +120,21 @@ def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
     line_nums = []
     lines = str(code_line).split("\n")
     prev_branch_num = 0
+    prev_line_num = 0
     for i, line in enumerate(lines):
       _line = line.strip()
-      font_tags = BeautifulSoup(_line, "html.parser").find_all("font")
-      if len(font_tags) == 0:
+      branch_num = re.search(r'<font color="(red|green)">-\d+-', _line)
+      if not branch_num:  # Try to get line number
+        pl_cand = _line.split()
+        if not pl_cand:
+          continue
+        if pl_cand[0].isnumeric():
+          prev_line_num = int(pl_cand[0])
         continue
-      assert len(font_tags) == 1 and len(font_tags[0].contents)
-      branch_num_cand = font_tags[0].contents[0].strip()
-      if not (branch_num_cand[0] == "-" and branch_num_cand[-1] == "-"
-              and branch_num_cand[1:-1].isnumeric()):
-        continue
-      branch_num = int(branch_num_cand[1:-1])
+      branch_num = int(branch_num.group(0).split("-")[1])
       assert prev_branch_num == branch_num - 1, (
           f"Branch number not in order: {branch_num} != {prev_branch_num + 1}")
-      prev_line = lines[i - 1]
-      line_nums.append(int(prev_line.split()[0]))
+      line_nums.append(prev_line_num)
       prev_branch_num = branch_num
 
     # Get first line of the code snippet
@@ -147,7 +147,7 @@ def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
     _idx = branch_dict["line_pos"].index(init_code_line)
     yaml_entry["line_num"] = [int(n) for n in line_nums]
     yaml_entry["branch_type"] = branch_dict["branch_type"][_idx]
-    yaml_entry["coverage"] = []
+    yaml_entry["traces"] = []
     rows = table.find_all("tr")
     for row in rows:
       # Aggregate trace-level coverage
@@ -156,8 +156,29 @@ def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
         continue
       trace = []
       cov = False
+      if len(entries) == 2 and ")->(" in entries[0].string:
+        # Convert right arrow connected traces to dense format
+        dense_entries = ["-"] * len(line_nums) + [entries[-1]]
+        for entry in entries[0].string.split("->"):
+          entry = entry.strip()[1:-1]  # strip parentheses
+          entry = entry.split(".")
+          if len(entry) == 2:
+            idx, entry = entry
+          else:
+            if entry[0][0] == "!":
+              idx = int(entry[0][1:])
+              entry = "false"
+            else:
+              idx = int(entry[0])
+              entry = "true"
+          idx = int(idx) - 1
+          dense_entries[idx] = entry.strip()
+        entries = dense_entries
+
       for i, entry in enumerate(entries):
-        entry_str = str(entry.string)
+        entry_str = entry
+        if not isinstance(entry_str, str):
+          entry_str = str(entry.string)
         if entry_str not in ["Covered", "Not Covered", "-"]:
           # Handle condition
           if entry_str.startswith("CASEITEM"):
@@ -169,14 +190,21 @@ def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
         elif entry_str == "-":
           trace.append("X")
         else:
-          assert entry_str in ["Covered", "Not Covered"]
+          assert entry_str in ["Covered", "Not Covered"], entry_str
           assert i == len(entries) - 1, "Coverage data should be last"
           cov = entry_str == "Covered"
-      yaml_entry["coverage"].append({"trace": trace, "cov": cov})
+      yaml_entry["traces"].append({"trace": trace, "cov": cov})
+      assert (len(yaml_entry["traces"][-1]["trace"])
+              == len(yaml_entry["line_num"])), (
+          f"Mismatch between number of lines and trace length: "
+          f"# lines({len(yaml_entry['line_num'])}) != "
+          f"# trace({len(yaml_entry['traces'][-1]['trace'])})"
+          f"{len(entries)}")
     # Stringify to enable comparison and avoid duplicate entries
     yaml_entry_str = json.dumps(yaml_entry, sort_keys=True)
     if yaml_entry_str not in yaml_entry_strs:
       yaml_entry_strs.append(yaml_entry_str)
+
   yaml_entries = [json.loads(s) for s in yaml_entry_strs]
   for i, entry in enumerate(yaml_entries):
     entry["id"] = i
