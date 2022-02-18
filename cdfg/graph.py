@@ -21,7 +21,6 @@ class Node:
   text -- the text of the node (str)
   type -- the type of the node (str)
   condition -- the condition of the node, only for branch nodes (str)
-  is_end -- whether the node is the end of a block (bool)
   prev_nodes -- a list of previous nodes (List(Node))
   next_nodes -- a list of next node, condition pairs (List(Node, str))
   block_depth -- the depth of the block the node is in (int)
@@ -43,7 +42,6 @@ class Node:
     self.type = ""
     self.condition = ""
     self.lead_condition = ""
-    self.is_end = False
     self.prev_nodes = []
     self.next_nodes = []
     self.block_depth = block_depth
@@ -56,8 +54,7 @@ class Node:
 
   def __str__(self):
     prefix = self.type
-    if self.line_num >= 0:
-      prefix += f" @L{self.line_num}"
+    prefix += f" @{self.get_id()}"
     if self.condition:
       prefix += f" / cond.: {self.condition}"
     if self.lead_condition:
@@ -66,11 +63,21 @@ class Node:
       prefix += f" / cond. vars: {self.condition_vars}"
     if self.assigned_vars:
       prefix += f" / assigned vars: {self.assigned_vars}"
+    if self.prev_nodes:
+      prefix += f" / fan_in: {[n.get_id() for n in self.prev_nodes]}"
+    if self.next_nodes:
+      prefix += f" / fan_out: {[n[0].get_id() for n in self.next_nodes]}"
     s = self.get_one_line_str()
     if s and "always" not in self.type:
       return f"({prefix}): {s}"
     else:
       return f"({prefix})"
+
+  def get_id(self):
+    if self.line_num > 0:
+      return f"L{self.line_num}"
+    else:
+      return f"A{str(id(self))[-4:]}"
 
   def get_one_line_str(self):
     ret = preprocess_rtl_str(self.text, one_line=True)
@@ -203,7 +210,6 @@ class EndNode(Node):
                block_depth: int = 0):
     super().__init__(verible_tree=verible_tree,
                      rtl_content=rtl_content, block_depth=block_depth)
-    self.is_end = True
     self.type = "end"
 
 
@@ -263,6 +269,3 @@ class AlwaysNode(Node):
           f"{lhs_subtree['tag']} is not an expected type of node.")
       ids |= get_symbol_identifiers_in_tree(lhs_subtree, self.rtl_content)
     self.assigned_vars = ids
-
-  def print_graph(self):
-    self.print_block()

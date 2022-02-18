@@ -28,14 +28,7 @@ def connect_nodes(node: "Node", next_node: "Node",
   """Connect two nodes."""
   node = get_rightmost_node(node)
   next_node = get_leftmost_node(next_node)
-  if node.is_end and next_node.is_end and condition is None:
-    # If both nodes are arbitrary end nodes, merge them together.
-    for p in node.prev_nodes:
-      conds = p.remove_next_node(node)
-      assert len(conds) == 1, f"Unexpected conditions: {conds}"
-      p.add_next_node(next_node, conds[0])
-    del node
-    return
+  # TODO: merge redundant nodes.
   next_node.add_prev_node(node)
   node.add_next_node(next_node, condition)
 
@@ -80,9 +73,6 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   assert branch_node["tag"] == Tag.IF_HEADER
   branch_node = BranchNode(branch_node, rtl_content, block_depth=block_depth)
   nodes.append(branch_node)
-  # Construct an end node:
-  end_node = EndNode(block_depth=block_depth)
-
   # Construct if-body node.
   if_body_node = if_clause["children"][1]
   assert if_body_node["tag"] == Tag.IF_BODY
@@ -96,6 +86,9 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
     if_node = construct_statement(block_node, rtl_content,
                                   block_depth=block_depth + 1)
     if_nodes = [if_node]
+
+  # Construct an end node:
+  end_node = EndNode(block_depth=block_depth)
   # Connect if-body node to branch node.
   connect_nodes(branch_node, if_nodes[0], condition=Condition.TRUE)
   # Connect if-body node to end node.
@@ -121,7 +114,6 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   else:  # If there is no else clause, connect the branch node to the end node.
     connect_nodes(branch_node, end_node, condition=Condition.FALSE)
   nodes.append(end_node)
-
   return nodes
 
 
@@ -140,11 +132,10 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   # Construct branch node.
   branch_node = BranchNode(verible_tree=verible_tree, rtl_content=rtl_content,
                            block_depth=block_depth)
-  # Construct an end node:
-  end_node = EndNode(block_depth=block_depth)
   # Construct case-item-list node.
   default_node = None
   nodes = []
+  conditions_list = []
   for case_item in get_case_item_tree(verible_tree)["children"]:
     children = case_item["children"]
     children_tags = [c["tag"] for c in children]
@@ -164,13 +155,18 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
     condition = get_subtree_text(children[0], rtl_content)
     condition = preprocess_rtl_str(condition, no_space=True)
     conditions = re.split(r',\s*(?![^{}]*\})', condition)
-    connect_nodes(branch_node, node, condition=conditions)
-    # Connect case-item-list node to end node.
-    connect_nodes(node, end_node)
+    # print(f"CASEITEM node: {branch_node}->{node[0]}->{node[1]}->{end_node}")
     nodes.append(node)
+    conditions_list.append(conditions)
     if children_tags[0] == Tag.DEFAULT:
       assert default_node is None, "Multiple default cases"
       default_node = get_leftmost_node(node)
+  # Construct an end node:
+  end_node = EndNode(block_depth=block_depth)
+  for cond, node in zip(conditions_list, nodes):
+    # Connect case-item-list node to branch node and end node.
+    connect_nodes(branch_node, node, condition=cond)
+    connect_nodes(node, end_node)
 
   if default_node:
     # Elaborate default node lead condition.
@@ -235,6 +231,8 @@ def construct_statement_with_ternary_cond(verible_tree: dict, rtl_content: str,
 
   # Construct ternary expression.
   ternary_tree = all_ternary_trees[0]
+  start_node = Node(verible_tree, rtl_content=rtl_content,
+                    block_depth=block_depth)
   branch_node = BranchNode(verible_tree=ternary_tree, rtl_content=rtl_content,
                            block_depth=block_depth)
   trees = {
@@ -247,11 +245,9 @@ def construct_statement_with_ternary_cond(verible_tree: dict, rtl_content: str,
                                       block_depth=block_depth + 1)
 
   # Construct start and end nodes.
-  start_node = Node(verible_tree, rtl_content=rtl_content,
-                    block_depth=block_depth)
-
   end_node = Node(verible_tree, rtl_content=rtl_content,
                   block_depth=block_depth)
+
   # Connect them all together.
   connect_nodes(start_node, branch_node)
   connect_nodes(branch_node, nodes[Condition.TRUE], condition=Condition.TRUE)
@@ -325,7 +321,6 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
           f"in sequence block.")
 
     nodes.append(new_nodes)
-
   for i, n in enumerate(nodes):  # Connect nodes
     if i == 0:
       continue
@@ -365,7 +360,8 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
 
   always_node.update_condition_vars()
   always_node.update_assigned_vars()
-  always_node.print_graph()
+  always_node.print_block()
+
   return always_node
 
 
