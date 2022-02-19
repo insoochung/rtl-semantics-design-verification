@@ -1,3 +1,9 @@
-[submodule "ibex"]
-	path = ibex
+[submodule "third_party/verible"]
+	path = third_party/verible
+	url = https://github.com/chipsalliance/verible.git
+[submodule "designs/ibex_v1/ibex"]
+	path = designs/ibex_v1/ibex
 	url = https://github.com/lowRISC/ibex.git
+[submodule "designs/ibex_v1/riscv-isa-sim"]
+	path = designs/ibex_v1/riscv-isa-sim
+	url = https://github.com/lowRISC/riscv-isa-sim.git

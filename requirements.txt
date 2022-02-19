@@ -1,2 +1,5 @@
-lark>=1.0.0
+lark
 tqdm
+PyYaml
+junit_xml
+beautifulsoup4

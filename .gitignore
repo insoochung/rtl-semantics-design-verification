@@ -1,2 +1,12 @@
+.vscode/
 __pycache__/
+.DS_Store
+
 reformatted/
+toolchains/
+spike/
+designs/ibex_v1/parsed_rtl/*.tree
+designs/ibex_v1/parsed_rtl/*.json
+
+urgReport/
+generated/
