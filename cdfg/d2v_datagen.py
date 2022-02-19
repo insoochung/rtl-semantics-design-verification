@@ -3,10 +3,11 @@ import argparse
 import yaml
 import pickle
 from glob import glob
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 
 from constructor import RtlFile, Module
-from graph import Node, BranchNode
+from graph import Node, BranchNode, EndNode
+from constants import Condition
 
 
 def _load_yaml(filepath: str):
@@ -16,7 +17,7 @@ def _load_yaml(filepath: str):
   return ret
 
 
-def _load_rtl_file_from_pkl(pkl_file: str):
+def _load_pkl(pkl_file: str):
   """Loads the RTL file from the given pickle file."""
   with open(pkl_file, "rb") as f:
     ret = pickle.load(f)
@@ -42,34 +43,86 @@ def load_cdfgs(cdfg_dir: str):
   """
   ret = {}
   for fp in glob(os.path.join(f"{cdfg_dir}/*.pkl")):
-    cdfg = _load_rtl_file_from_pkl(fp)
+    cdfg = _load_pkl(fp)
     ret[os.path.basename(fp).split(".")[0]] = cdfg
   return ret
 
 
-def get_branch(nodes: List[Node], line_number: int,
-               trace_signature: Tuple[int], branch_type: str,
-               node_to_index: Dict[Node, int],
-               line_number_to_nodes: Dict[int, List[Node]]):
-  """Return nodes in branch subpath with respect to trace signature"""
-  start_node_cands = []
-  for node in line_number_to_nodes[line_number]:
-    if isinstance(node, BranchNode):
-      start_node_cands.append(node)
-  assert len(start_node_cands) == 1, "Multiple branch nodes on same line"
-  start_node = start_node_cands[0]
-  condition_block = start_node.to_list()
-  num_cond = sum(1 for node in condition_block if isinstance(node, BranchNode))
-  if num_cond != len(trace_signature):
-    print(f"{branch_type} branch @ line {line_number}")
-    print(f"Trace: {trace_signature}")
-    print(
-        f"# of conditions in condition block ({num_cond}) != # of conditions "
-        f"in the trace signature: {len(trace_signature)}")
-    # start_node.print_block()
-    # assert False, (
-    #     f"# of conditions in condition block ({num_cond}) != # of conditions "
-    #     f"in the trace signature: {len(trace_signature)}")
+def preprocess_trace_conditions(trace_conditions: List[str]):
+  """Preprocesses the trace conditions to match with Node.next_nodes conditions
+  """
+  ret = []
+  for sig in trace_conditions:
+    sig = sig.replace(", ", ",").strip()
+    if " " in sig:  # If there are multiple items to conditions
+      _sig = preprocess_trace_conditions(sig.split(" "))
+      sig = " ".join(_sig)
+    elif sig.startswith("{") and sig.endswith("}"):  # Handle concatenate
+      _sig = sig[1:-1]
+      _sig = preprocess_trace_conditions(_sig.split(","))
+      sig = "{" + ",".join(_sig) + "}"
+    elif sig == "X":  # If don't care, substitute with None
+      sig = None
+    elif "." in sig:  # If object attribute, only take attribute name
+      sig = sig.split(".")[-1]
+    elif "::" in sig:  # If pacakge attribute, only take attribute name
+      sig = sig.split("::")[-1]
+    elif "'b" in sig:  # If binary number, format it
+      _sig = sig.split("'b")
+      num_digits = int(_sig[0])
+      _sig[1] = _sig[1].zfill(num_digits)
+      sig = "'b".join(_sig)
+    elif sig == "true":
+      sig = "1"
+    elif sig == "false":
+      sig = "0"
+
+    ret.append(sig)
+
+  return tuple(ret)
+
+
+def get_cdfg_subpath(branch_line_nums: List[int], trace_conditions: Tuple[int],
+                     line_number_to_nodes: Dict[int, List[Node]],
+                     covered_subpaths: Dict[Tuple[Node], Tuple[int, Tuple[Any]]]):
+  """Return nodes in branch subpath with respect to trace conditions"""
+  branch_nodes = []
+  branch_conditions = []
+  for ln in branch_line_nums:
+    cnt = 0
+    for node in line_number_to_nodes[ln]:
+      if isinstance(node, BranchNode):
+        branch_nodes.append(node)
+        cnt += 1
+    assert cnt == 1, "There should be one branch node per line"
+    bn = branch_nodes[-1]
+    branch_conditions.append([n[1] for n in bn.next_nodes])
+  assert len(branch_nodes) == len(trace_conditions)
+  for i, cond in enumerate(trace_conditions):
+    if cond is None:
+      continue
+    assert cond in branch_conditions[i], (
+        f"{cond} not in {branch_conditions[i]}")
+
+  nodes_and_conditions = zip(branch_nodes, trace_conditions)
+  start_node = branch_nodes[0]
+  cdfg_subpath = start_node.to_list(conditions=nodes_and_conditions)
+
+  assert all([
+      n in cdfg_subpath or not c for (n, c) in nodes_and_conditions]), (
+      "Trace subpath should include all branch nodes with non-dont-care "
+      "conditions")
+  subpath_signature = tuple(cdfg_subpath)
+  if subpath_signature in covered_subpaths:
+    _, covered_trace = covered_subpaths[subpath_signature]
+    assert len(covered_trace) == len(trace_conditions)
+    for i, (ct, t) in enumerate(zip(covered_trace, trace_conditions)):
+      if ct != t:
+        assert (set({ct, t}) == set({None, Condition.TRUE})
+                and isinstance(branch_nodes[i].next_nodes[1][0], EndNode))
+  covered_subpaths[subpath_signature] = (
+      branch_line_nums[0], tuple(trace_conditions))
+  return cdfg_subpath
 
 
 def generate_dataset(sim_cov_dir: str, cdfg_dir: str, output_dir: str):
@@ -90,6 +143,9 @@ def generate_dataset(sim_cov_dir: str, cdfg_dir: str, output_dir: str):
   modules = sorted(modules - irrelevant)
 
   # Sync coverage from the simulator to CDFG paths.
+  sum_nodes = 0
+  sum_coverpoints = 0
+  covered_subpaths = {}
   synced_coverage = {}
   for module_name in modules:
     print(f"Syncing coverage for module: {module_name} - parsed from "
@@ -97,39 +153,65 @@ def generate_dataset(sim_cov_dir: str, cdfg_dir: str, output_dir: str):
     module_coverage = {}
     cdfg = cdfgs[module_name]
     nodes = cdfg.nodes
+    sum_nodes += len(nodes)
     node_to_index = cdfg.node_to_index
     line_number_to_nodes = cdfg.line_number_to_nodes
+
     for sim_cov in sim_covs[module_name]["coverages"]:
-      line_num = sim_cov["line_num"]
-      if line_num not in line_number_to_nodes:
+      branch_line_nums = sim_cov["line_num"]
+      first_ln = branch_line_nums[0]
+      if first_ln not in line_number_to_nodes:
         continue  # Skip branches that are not inside an always block
       branch_type = sim_cov["branch_type"]
-      traces = sim_cov["coverage"]
-      if line_num not in module_coverage:
+      traces = sim_cov["traces"]
+      if first_ln not in module_coverage:
+        trace_len = len(traces[0]["trace"])
+        assert len(branch_line_nums) == trace_len, (
+            f"Branch line numbers ({len(branch_line_nums)}) != "
+            f"trace length ({trace_len})")
         d = {
-            "line_num": line_num,
+            "branch_line_nums": branch_line_nums,
             "branch_type": branch_type,
-            "trace_len": len(traces[0]["trace"]),
+            "trace_len": trace_len,
             "traces": {
                 # key: tuple of condition strings
-                # value: {"branch": tuple of node ids, "is_hit": bool}
+                # value: {"coverpoint": tuple of node ids, "is_hit": bool}
             }
         }
-        module_coverage[line_num] = d
-      ref_d = module_coverage[line_num]
+        module_coverage[first_ln] = d
+
+      ref_d = module_coverage[first_ln]
       for trace in traces:
         is_hit = bool(int(trace["cov"]))
-        trace_signature = tuple(trace["trace"])
-        assert ref_d["trace_len"] == len(trace_signature)
+        trace_conditions = list(trace["trace"])
+        trace_conditions = preprocess_trace_conditions(trace_conditions)
+        assert ref_d["trace_len"] == len(trace_conditions)
+        trace_signature = tuple(trace_conditions)
         if trace_signature in ref_d["traces"]:
           ref_d["traces"][trace_signature]["is_hit"] |= is_hit
         else:
           # Find relevant node branches
-          branch = get_branch(nodes, line_num, trace_signature, branch_type,
-                              node_to_index, line_number_to_nodes)
-        assert 0, "TODO: implement"
-
-  # TODO: serialize and save
+          cdfg_subpath = get_cdfg_subpath(branch_line_nums, trace_conditions,
+                                          line_number_to_nodes,
+                                          covered_subpaths)
+          coverpoint = tuple(node_to_index[n] for n in cdfg_subpath)
+          ref_d["traces"][trace_signature] = {
+              # TODO: add test parameters once we have them in YAML.
+              # "test_parameters": trace["test_parameters"],
+              "is_hit": is_hit,
+              "coverpoint": coverpoint}
+          sum_coverpoints += 1
+    synced_coverage[module_name] = module_coverage
+  print(f"Total number of nodes: {sum_nodes}")
+  print(f"Total number of coverpoints: {sum_coverpoints}")
+  print(f"Total number of unique cdfg subpaths: {len(covered_subpaths)}")
+  os.makedirs(output_dir, exist_ok=True)
+  synced_cov_path = os.path.join(output_dir, "synced_data.dict.pkl")
+  with open(synced_cov_path, "wb") as f:
+    pickle.dump(synced_coverage, f)
+    print(f"Saved synced coverage to: {synced_cov_path}")
+  assert synced_coverage == _load_pkl(synced_cov_path)  # Test load
+  # TODO: serialize and save as DL training loader friendly format.
 
 
 def main():
@@ -138,7 +220,7 @@ def main():
                       help="Directory containing the coverage YAMLs")
   parser.add_argument("-cd", "--cdfg_dir", required=True,
                       help="Directory containing the constructed CDFGs")
-  parser.add_argument("-od", "--output_dir", required=True,
+  parser.add_argument("-od", "--output_dir", default="generated/dataset",
                       help="Directory to write the output files")
   args = parser.parse_args()
   generate_dataset(args.sim_cov_dir, args.cdfg_dir, args.output_dir)

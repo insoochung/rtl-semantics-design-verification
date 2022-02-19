@@ -1,5 +1,6 @@
-from constants import Tag, Condition
+from typing import List, Tuple
 
+from constants import Tag, Condition
 from utils import (get_indent_str,
                    preprocess_rtl_str,
                    find_subtree,
@@ -66,7 +67,8 @@ class Node:
     if self.prev_nodes:
       prefix += f" / fan_in: {[n.get_id() for n in self.prev_nodes]}"
     if self.next_nodes:
-      prefix += f" / fan_out: {[n[0].get_id() for n in self.next_nodes]}"
+      prefix += (f" / fan_out: "
+                 f"{[(n[0].get_id(), n[1]) for n in self.next_nodes]}")
     s = self.get_one_line_str()
     if s and "always" not in self.type:
       return f"({prefix}): {s}"
@@ -148,7 +150,7 @@ class Node:
     if next_condition == Condition.TRUE:
       next_node.lead_condition = self.condition
     elif next_condition == Condition.FALSE:
-      next_node.lead_condition = f"!{self.condition}"
+      next_node.lead_condition = f"!({self.condition})"
     else:
       if not isinstance(next_condition, list):
         next_node.lead_condition = f"{self.condition} == {next_condition}"
@@ -178,20 +180,41 @@ class Node:
     """Remove a previous node"""
     self.prev_nodes.remove(prev_node)
 
-  def to_list(self):
+  def to_list(self, conditions: List[Tuple["Node", str]] = []):
+    """Return the list of nodes in the path starting from this node to end node
+
+    Keyword arguments:
+    conditions -- the list of pairs of branch node and condition, whenver
+                  a branch node is encountered, the condition is utilized for
+                  traversal (List[Tuple[Node, str]])
+    """
     ret = [self]
-    for n, _ in self.next_nodes:
+    conditions = list(conditions)
+
+    next_nodes = self.next_nodes
+    for node, condition in conditions:
+      if condition and node == self:
+        # If one of the conditions is relevant, only traverse that node
+        next_nodes = [n for n in next_nodes if n[1] == condition]
+        assert len(
+            next_nodes) == 1, (
+            f"Can't find condition '{condition}' from next node conditions: "
+            f"{[(n[1]) for n in self.next_nodes]}")
+        break
+
+    # Traverse the next nodes.
+    for n, _ in next_nodes:
       if n.block_depth > self.block_depth and n != self.end_node:
-        ret.extend(n.to_list())
+        ret.extend(n.to_list(conditions))
         while (len(ret[-1].next_nodes) == 1
                and ret[-1].next_nodes[0][0].block_depth > self.block_depth):
           next_n, _ = ret[-1].next_nodes[0]
-          if next_n == self.end_node:
+          ret.extend(next_n.to_list(conditions))
+          if (next_n == self.end_node):
             break
-          ret.extend(next_n.to_list())
 
     if self.end_node:
-      ret.extend(self.end_node.to_list())
+      ret.extend(self.end_node.to_list(conditions))
     return ret
 
   def print_block(self):
@@ -201,6 +224,18 @@ class Node:
     for n in l:
       print(get_indent_str(n.block_depth * 2) + str(n))
     print()
+
+  def update_next_node_conditions(self):
+    """Update the conditions of the next nodes."""
+    for i, (n, cond) in enumerate(self.next_nodes):
+      if cond is None:
+        continue
+      if not isinstance(cond, list):
+        cond = [cond]
+      for cond_i, _cond in enumerate(cond):
+        if "'b" in _cond:  # Remove dummy underscores in numbers
+          cond[cond_i] = _cond.replace("_", "")
+      self.next_nodes[i] = (n, " ".join(cond))
 
 
 class EndNode(Node):

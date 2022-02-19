@@ -88,7 +88,7 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
     if_nodes = [if_node]
 
   # Construct an end node:
-  end_node = EndNode(block_depth=block_depth)
+  branch_node.end_node = end_node = EndNode(block_depth=block_depth)
   # Connect if-body node to branch node.
   connect_nodes(branch_node, if_nodes[0], condition=Condition.TRUE)
   # Connect if-body node to end node.
@@ -155,14 +155,13 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
     condition = get_subtree_text(children[0], rtl_content)
     condition = preprocess_rtl_str(condition, no_space=True)
     conditions = re.split(r',\s*(?![^{}]*\})', condition)
-    # print(f"CASEITEM node: {branch_node}->{node[0]}->{node[1]}->{end_node}")
     nodes.append(node)
     conditions_list.append(conditions)
     if children_tags[0] == Tag.DEFAULT:
       assert default_node is None, "Multiple default cases"
       default_node = get_leftmost_node(node)
   # Construct an end node:
-  end_node = EndNode(block_depth=block_depth)
+  branch_node.end_node = end_node = EndNode(block_depth=block_depth)
   for cond, node in zip(conditions_list, nodes):
     # Connect case-item-list node to branch node and end node.
     connect_nodes(branch_node, node, condition=cond)
@@ -358,6 +357,7 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   # Loop back to the start node.
   connect_nodes(always_node.end_node, always_node)
 
+  # Post process the always node.
   always_node.update_condition_vars()
   always_node.update_assigned_vars()
   always_node.print_block()
@@ -408,6 +408,8 @@ class RtlFile:
     self.nodes = []
     for m in self.modules:
       self.nodes.extend(m.to_list())
+    for n in self.nodes:  # Postprocess next_node conditions
+      n.update_next_node_conditions()
     # Create line number to nodes mapping
     self.line_number_to_nodes = {}
     self.node_to_index = {}
@@ -442,6 +444,7 @@ class Module:
     self.verible_tree = verible_tree
     self.always_graphs = []
     self.construct_always_graphs()
+    # TODO: Construct continuous assignments outside of always blocks.
 
   def construct_always_graphs(self):
     """Construct all graphs of always blocks found in the module."""
