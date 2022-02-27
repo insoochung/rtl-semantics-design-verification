@@ -14,6 +14,7 @@ fi
 # Maybe build spike binaries
 if [ ! -d $SPIKE_PATH ]
 then
+  rm -rf $DESIGN_DIR/riscv-isa-sim/build
   mkdir -p $DESIGN_DIR/riscv-isa-sim/build
   cd $DESIGN_DIR/riscv-isa-sim/build
   ../configure --enable-commitlog --enable-misaligned --prefix=$SPIKE_DIR
