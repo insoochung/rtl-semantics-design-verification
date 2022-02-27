@@ -9,10 +9,10 @@ fi
 
 if [ ! -d $RISCV_TOOLCHAIN ]
 then
-  mkdir -p $REPO/toolchains
-  cd $REPO/toolchains
-  wget https://github.com/lowRISC/lowrisc-toolchains/releases/download/$RISCV_TOOLTAG/lowrisc-toolchain-gcc-rv32imc-$RISCV_TOOLTAG.tar.xz
-  tar -xvf lowrisc-toolchain-gcc-rv32imc-$RISCV_TOOLTAG.tar.xz
+  mkdir -p $DESIGN_DIR/toolchains
+  cd $DESIGN_DIR/toolchains
+  wget https://github.com/lowRISC/lowrisc-toolchains/releases/download/$RISCV_TOOLTAG/lowrisc-toolchain-gcc-rv32imcb-$RISCV_TOOLTAG.tar.xz
+  tar -xvf lowrisc-toolchain-gcc-rv32imcb-$RISCV_TOOLTAG.tar.xz
   cd -
   echo "RISCV toolchain downloaded and extracted at $RISCV_TOOLCHAIN"
 else
