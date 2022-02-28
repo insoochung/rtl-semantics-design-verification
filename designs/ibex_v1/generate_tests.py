@@ -2,7 +2,6 @@ import os
 import argparse
 import yaml
 import copy
-import random
 
 from glob import glob
 
