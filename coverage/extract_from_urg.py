@@ -224,23 +224,8 @@ def cleanup_temp_files(output_dir):
         os.remove(temp_fp)
 
 
-def main():
-  parser = argparse.ArgumentParser()
-  parser.add_argument("-rp", "--report_path", required=False,
-                      help=("Path to a coverage HTML path, generated with "
-                             "ibex testbench"))
-  parser.add_argument("-rd", "--report_dir", required=False,
-                      help=("Path to the directory (e.g. urgReport) which "
-                             "contains multiple coverage HTML reports"))
-  parser.add_argument("-od", "--output_dir",
-                      default="generated/branch_cov",
-                      help=("Path to the directory where the parsed coverage "
-                             "YAML files will be written"))
-
-  args = parser.parse_args()
-  report_path = args.report_path
-  report_dir = args.report_dir
-  output_dir = args.output_dir
+def extract(output_dir: str, report_path: str = "", report_dir: str = ""):
+  """Extract coverage from the HTML reports"""
   if report_path and report_dir or (not report_path and not report_dir):
     print("Please specify either a report path or a report directory "
           "(but not both).")
@@ -255,8 +240,24 @@ def main():
     write_branch_to_temp(report_path, output_dir)
     branch_dict = set_branch_dict(output_dir)
     write_yaml_file(branch_dict, output_dir)
-
   cleanup_temp_files(output_dir)
+
+
+def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument("-rp", "--report_path", required=False,
+                      help=("Path to a coverage HTML path, generated with "
+                             "ibex testbench"))
+  parser.add_argument("-rd", "--report_dir", required=False,
+                      help=("Path to the directory (e.g. urgReport) which "
+                             "contains multiple coverage HTML reports"))
+  parser.add_argument("-od", "--output_dir",
+                      default="generated/branch_cov",
+                      help=("Path to the directory where the parsed coverage "
+                             "YAML files will be written"))
+
+  args = parser.parse_args()
+  extract(args.output_dir, args.report_path, args.report_dir)
 
 
 if __name__ == "__main__":
