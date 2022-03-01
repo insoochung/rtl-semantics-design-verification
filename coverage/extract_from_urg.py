@@ -27,6 +27,7 @@ def extract_from_directory(report_dir, output_dir="", in_place=False):
         write_yaml_file(branch_dict, output_dir, cov_name=cov_name)
       else:
         print(f"Branch or module name not found in: {report_path}")
+      cleanup_temp_files(output_dir)
 
 
 def create_branch_temp(output_dir):
@@ -245,7 +246,8 @@ def extract(report_path: str = "", report_dir: str = "", output_dir: str = "",
     write_branch_to_temp(report_path, output_dir)
     branch_dict = set_branch_dict(output_dir)
     write_yaml_file(branch_dict, output_dir)
-  cleanup_temp_files(output_dir)
+  if not in_place:
+    cleanup_temp_files(output_dir)
 
 
 def main():
