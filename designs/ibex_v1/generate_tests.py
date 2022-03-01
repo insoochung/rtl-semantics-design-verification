@@ -7,17 +7,11 @@ from glob import glob
 
 import numpy as np
 
-
-def str_presenter(dumper, data):
-  if len(data.splitlines()) > 1:  # check for multiline string
-    return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
-  return dumper.represent_scalar('tag:yaml.org,2002:str', data)
-
-
-class TestTemplate:
-  def __init__(self, **kwargs):
-    self.content = kwargs
-
+class DvTestTemplate:
+  def __init__(self, yaml_path: str):
+    with open(yaml_path, "r") as f:
+      self.content = yaml.load(f, Loader=yaml.FullLoader)
+    self.template_name = os.path.basename(yaml_path)
   def generate(self, id_str):
     """Generate a test case from the template"""
     ret = copy.deepcopy(self.content)
@@ -44,19 +38,23 @@ class TestTemplate:
       else:
         assert False, f"Unknown type {v['type']}"
     ret["gen_opts"] = "\n".join(f"+{k}={v}" for k, v in knobs.items())
+    ret["template_name"] = self.template_name
 
     return [ret]
 
-
 def generate_tests(template_dir: str, output_dir: str, num_tests: int):
   """Generate tests given test template"""
+  def str_presenter(dumper, data):
+    if len(data.splitlines()) > 1:  # check for multiline string
+      return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
   yaml.add_representer(str, str_presenter)
 
   # Load test templates
   templates = []
   for yaml_path in glob(os.path.join(template_dir, "*.yaml")):
-    with open(yaml_path, "r") as f:
-      templates.append(TestTemplate(**yaml.load(f, Loader=yaml.FullLoader)))
+    templates.append(DvTestTemplate(yaml_path))
 
   os.makedirs(output_dir, exist_ok=True)
 

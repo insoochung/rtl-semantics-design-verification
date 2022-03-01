@@ -18,7 +18,7 @@ def run_test(test_path, output_dir, verification_dir):
   urg_report_dir = os.path.join(test_output_dir, "urg_report")
   if os.path.exists(urg_report_dir):
     print(f"Skipping '{test_path}' as it has already been simulated, "
-          f"see '{urg_report_dir}'")
+          f"see '{urg_report_dir}'\n")
     return
 
   os.makedirs(test_output_dir, exist_ok=True)
@@ -29,7 +29,7 @@ def run_test(test_path, output_dir, verification_dir):
 
   # Backup original testlist.yaml
   if os.path.exists(testlist_path):
-    os.rename(testlist_path, testlist_backup_path)
+    shutil.move(testlist_path, testlist_backup_path)
   # Overwrite testlist.yaml with test to simulate
   shutil.copy(test_path, testlist_path)
   prev_dir = os.getcwd()
@@ -44,15 +44,15 @@ def run_test(test_path, output_dir, verification_dir):
       try:
         subprocess.run(
             cmd.split(" "), stdout=stdout, stderr=stderr, check=True)
-        os.rename(temp_urg_dir,  # Move urg report to test output directory
-                  urg_report_dir)
+        shutil.move(temp_urg_dir,  # Move urg report to test output directory
+                    urg_report_dir)
       except subprocess.CalledProcessError as e:
         print(f"ERROR: {e}")
 
   # Keep a backup of test in the output directory
   shutil.copy(test_path, test_output_dir)
   if os.path.exists(testlist_backup_path):  # Restore original testlist.yaml
-    os.rename(testlist_backup_path, testlist_path)
+    shutil.move(testlist_backup_path, testlist_path)
   os.chdir(prev_dir)  # Come back to original directory
 
   print(f"Simulation finished for '{test_path}'")
