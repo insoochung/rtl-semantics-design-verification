@@ -10,20 +10,24 @@ BRANCH_TEMP_FILENAME = ".branch_temp.html"
 TABLE_TEMP_FILENAME = ".table_temp.html"
 
 
-def extract_from_directory(report_dir, output_dir):
+def extract_from_directory(report_dir, output_dir="", in_place=False):
   """Extract branch coverage data from a directory of coverage reports"""
-  for filename in os.listdir(report_dir):
-    if not filename.endswith(".html") or not filename.startswith("mod"):
-      continue
-
-    cov_name = filename[:-5]  # removes trailing .html
-    report_path = os.path.join(report_dir, filename)
-    if write_branch_to_temp(report_path, output_dir) == 1:
-      print(f"Branch found in: {report_path}")
-      branch_dict = set_branch_dict(output_dir)
-      write_yaml_file(branch_dict, output_dir, cov_name=cov_name)
-    else:
-      print(f"Branch or module name not found in: {report_path}")
+  assert in_place or output_dir, "Please specify an output directory"
+  for root, _, filenames in os.walk(report_dir):
+    if in_place:
+      output_dir = os.path.join(root, "extracted")
+    for filename in filenames:
+      if not filename.endswith(".html") or not filename.startswith("mod"):
+        continue
+      cov_name = filename[:-5]  # removes trailing .html
+      report_path = os.path.join(root, filename)
+      if write_branch_to_temp(report_path, output_dir) == 1:
+        print(f"Branch found in: {report_path}")
+        branch_dict = set_branch_dict(output_dir)
+        write_yaml_file(branch_dict, output_dir, cov_name=cov_name)
+      else:
+        print(f"Branch or module name not found in: {report_path}")
+      cleanup_temp_files(output_dir)
 
 
 def create_branch_temp(output_dir):
@@ -55,6 +59,7 @@ def write_branch_to_temp(html_file, output_dir):
   modulename_in_file = False
 
   print(f"Parsing branch from: {html_file}")
+  os.makedirs(output_dir, exist_ok=True)
   with create_branch_temp(output_dir) as branch_fp, \
           create_branch_table_temp(output_dir) as table_fp:
     with open(html_file, "r") as file:
@@ -224,6 +229,27 @@ def cleanup_temp_files(output_dir):
         os.remove(temp_fp)
 
 
+def extract(report_path: str = "", report_dir: str = "", output_dir: str = "",
+            in_place: bool = False):
+  """Extract coverage from the HTML reports"""
+  if report_path and report_dir or (not report_path and not report_dir):
+    print("Please specify either a report path or a report directory "
+          "(but not both).")
+    exit(1)
+  if not output_dir:
+    output_dir = os.path.join(os.getcwd(), "branch_cov")
+
+  if report_dir:
+    extract_from_directory(report_dir, output_dir, in_place)
+  else:
+    assert not in_place, "In-place extraction is not supported for single file"
+    write_branch_to_temp(report_path, output_dir)
+    branch_dict = set_branch_dict(output_dir)
+    write_yaml_file(branch_dict, output_dir)
+  if not in_place:
+    cleanup_temp_files(output_dir)
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("-rp", "--report_path", required=False,
@@ -232,31 +258,15 @@ def main():
   parser.add_argument("-rd", "--report_dir", required=False,
                       help=("Path to the directory (e.g. urgReport) which "
                              "contains multiple coverage HTML reports"))
-  parser.add_argument("-od", "--output_dir",
-                      default="generated/branch_cov",
+  parser.add_argument("-od", "--output_dir", default="",
                       help=("Path to the directory where the parsed coverage "
                              "YAML files will be written"))
+  parser.add_argument("-ip", "--in_place", action="store_true", default=False,
+                      help=("Whether to place the parsed coverage YAML files "
+                             "in the same directory as the original reports"))
 
   args = parser.parse_args()
-  report_path = args.report_path
-  report_dir = args.report_dir
-  output_dir = args.output_dir
-  if report_path and report_dir or (not report_path and not report_dir):
-    print("Please specify either a report path or a report directory "
-          "(but not both).")
-    exit(1)
-  if not output_dir:
-    output_dir = os.path.join(os.getcwd(), "branch_cov")
-  os.makedirs(output_dir, exist_ok=True)
-
-  if report_dir:
-    extract_from_directory(report_dir, output_dir)
-  else:
-    write_branch_to_temp(report_path, output_dir)
-    branch_dict = set_branch_dict(output_dir)
-    write_yaml_file(branch_dict, output_dir)
-
-  cleanup_temp_files(output_dir)
+  extract(args.report_path, args.report_dir, args.output_dir, args.in_place)
 
 
 if __name__ == "__main__":

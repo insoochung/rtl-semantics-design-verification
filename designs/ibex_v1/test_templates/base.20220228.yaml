@@ -1,0 +1,275 @@
+# Randomize knobs restricted to what's documented in:
+# https://github.com/lowRISC/ibex/blob/0f69d4972c5184e8c8de41c4002fb914ef3ce10f/vendor/google_riscv-dv/docs/source/configuration.rst
+# Other parameters follow riscv_rand_test in :
+# https://github.com/lowRISC/ibex/blob/0f69d4972c5184e8c8de41c4002fb914ef3ce10f/dv/uvm/core_ibex/riscv_dv_extension/ml_testlist.yaml
+test: generated_test_<id>
+description: generated_test_<id>
+iterations: 1
+no_iss: true
+gcc_opts: -mno-strict-align
+gen_test: riscv_ml_test
+rtl_test: core_ibex_reset_test
+no_post_compare: true
+gen_opts:
+  num_of_tests:
+    description: Number of assembly tests to be generated
+    default: 1
+    type: int
+    min_val: 1
+    max_val: 1
+  num_of_sub_program:
+    description: Number of sub-program in one test
+    default: 5
+    type: int
+    min_val: 0
+    max_val: 20
+  instr_cnt:
+    description: Instruction count per test
+    default: 200
+    type: int
+    min_val: 10000
+    max_val: 10000
+  enable_page_table_exception:
+    description: Enable page table exception
+    type: bool
+    default: 0
+  enable_unaligned_load_store:
+    description: Enable unaligned memory operations
+    type: bool
+    default: 0
+  no_ebreak:
+    description: Disable ebreak instruction
+    type: bool
+    default: 1
+  no_wfi:
+    description: Disable WFI instruction
+    type: bool
+    forced_default: 1
+  set_mstatus_tw:
+    description: Enable WFI to be treated as illegal instruction
+    type: bool
+    default: 0
+  no_dret:
+    description: Disable dret instruction
+    type: bool
+    default: 1
+  no_branch_jump:
+    description: Disable branch/jump instruction
+    type: bool
+    default: 0
+  no_csr_instr:
+    description: Disable CSR instruction
+    type: bool
+    default: 0
+  enable_illegal_csr_instruction:
+    description: Enable illegal CSR instructions
+    type: bool
+    default: 0
+  enable_access_invalid_csr_level:
+    description: Enable accesses to higher privileged CSRs
+    type: bool
+    default: 0
+  enable_dummy_csr_write:
+    description: Enable some dummy CSR writes in setup routine
+    type: bool
+    default: 0
+  enable_misaligned_instr:
+    description: Enable jumps to misaligned instruction addresses
+    type: bool
+    default: 0
+  no_fence:
+    description: Disable fence instruction
+    type: bool
+    default: 0
+  no_data_page:
+    description: Disable data page generation
+    type: bool
+    forced_default: 0
+  disable_compressed_instr:
+    description: Disable compressed instruction generation
+    type: bool
+    default: 0
+  boot_mode:
+    description: m:Machine mode, s:Supervisor mode, u:User mode
+    type: choice
+    default: m
+    values: [m, s, u]
+  no_directed_instr:
+    description: Disable directed instruction stream
+    type: bool
+    default: 0
+  require_signature_addr:
+    description: Set to 1 if test needs to talk to testbench
+    type: bool
+    default: 0
+  signature_addr:
+    description: Write to this addr to send data to testbench
+    type: int
+    forced_default: 0
+  enable_interrupt:
+    description: Enable MStatus.MIE, used in interrupt test
+    type: bool
+    default: 0
+  enable_timer_irq:
+    description: Enable xIE.xTIE, used to enable timer interrupts
+    type: bool
+    default: 0
+  gen_debug_section:
+    description: Enables randomized debug_rom section
+    type: bool
+    default: 0
+  num_debug_sub_program:
+    description: Number of debug sub-programs in test
+    type: int
+    default: 0
+    min_val: 0
+    max_val: 5
+  enable_ebreak_in_debug_rom:
+    description: Generate ebreak instructions inside debug ROM
+    type: bool
+    default: 0
+  set_dcsr_ebreak:
+    description: Randomly enable dcsr.ebreak(m/s/u)
+    type: bool
+    default: 0
+  enable_debug_single_step:
+    description: Enable debug single stepping functionality
+    type: bool
+    default: 0
+  randomize_csr:
+    description: Fully randomize main CSRs (xSTATUS, xIE)
+    type: bool
+    default: 0
+  illegal_instr_ratio:
+    description: Number of illegal instructions every 1000 instr
+    type: int
+    default: 0
+    min_val: 0
+    max_val: 50
+  hint_instr_ratio:
+    description: Number of HINT instructions every 1000 instr
+    type: int
+    default: 0
+    min_val: 0
+    max_val: 50
+  stream_name_0:
+    description: riscv_load_store_rand_instr_stream
+    type: choice
+    default: riscv_load_store_rand_instr_stream
+    values: [riscv_load_store_rand_instr_stream]
+  stream_freq_0:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_1:
+    description: riscv_loop_instr
+    type: choice
+    default: riscv_loop_instr
+    values: [riscv_loop_instr]
+  stream_freq_1:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_2:
+    description: riscv_hazard_instr_stream
+    type: choice
+    default: riscv_hazard_instr_stream
+    values: [riscv_hazard_instr_stream]
+  stream_freq_2:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_3:
+    description: riscv_load_store_hazard_instr_stream
+    type: choice
+    default: riscv_load_store_hazard_instr_stream
+    values: [riscv_load_store_hazard_instr_stream]
+  stream_freq_3:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_4:
+    description: riscv_mem_region_stress_test
+    type: choice
+    default: riscv_mem_region_stress_test
+    values: [riscv_mem_region_stress_test]
+  stream_freq_4:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_5:
+    description: riscv_jal_instr
+    type: choice
+    default: riscv_jal_instr
+    values: [riscv_jal_instr]
+  stream_freq_5:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_6:
+    description: riscv_int_numeric_corner_stream
+    type: choice
+    default: riscv_int_numeric_corner_stream
+    values: [riscv_int_numeric_corner_stream]
+  stream_freq_6:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_7:
+    description: riscv_multi_page_load_store_instr_stream
+    type: choice
+    default: riscv_multi_page_load_store_instr_stream
+    values: [riscv_multi_page_load_store_instr_stream]
+  stream_freq_7:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_8:
+    description: riscv_load_store_rand_addr_instr_stream
+    type: choice
+    default: riscv_load_store_rand_addr_instr_stream
+    values: [riscv_load_store_rand_addr_instr_stream]
+  stream_freq_8:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_9:
+    description: riscv_single_load_store_instr_stream
+    type: choice
+    default: riscv_single_load_store_instr_stream
+    values: [riscv_single_load_store_instr_stream]
+  stream_freq_9:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20
+  stream_name_10:
+    description: riscv_load_store_stress_instr_stream
+    type: choice
+    default: riscv_load_store_stress_instr_stream
+    values: [riscv_load_store_stress_instr_stream]
+  stream_freq_10:
+    description: Number of corresponding stream instructions every 1000 instr
+    type: int
+    default: 4
+    min_val: 0
+    max_val: 20

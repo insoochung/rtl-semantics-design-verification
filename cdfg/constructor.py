@@ -1,18 +1,23 @@
 import re
 import os
+import sys
 import argparse
 import pickle
 from typing import Union
 
-from constants import Tag, Condition
-from graph import Node, BranchNode, EndNode, AlwaysNode, DummyNode
-from parser import get_verible_parsed_rtl
-from utils import (preprocess_rtl_str,
-                   find_subtree,
-                   get_subtree_text,
-                   get_leftmost_node,
-                   get_rightmost_node,
-                   get_case_item_tree)
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from cdfg.constants import Tag, Condition
+from cdfg.graph import (Node, BranchNode, EndNode, AlwaysNode,
+                        DummyNode)
+from cdfg.parser import get_verible_parsed_rtl
+from cdfg.utils import (preprocess_rtl_str,
+                        find_subtree,
+                        get_subtree_text,
+                        get_leftmost_node,
+                        get_rightmost_node,
+                        get_case_item_tree)
+
 
 
 def _get_start_end_node(nodes: Union[tuple, list]):
@@ -383,22 +388,53 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   return always_node
 
 
-def construct_cdfgs_from_rtl(parsed_rtl_dir, rtl_dir, output_dir):
-  parsed_rtl = get_verible_parsed_rtl(parsed_rtl_dir,
-                                      orig_dir=rtl_dir)
-
+def construct_design_graph(parsed_rtl_dir, rtl_dir, output_dir):
+  design_graph = DesignGraph(parsed_rtl_dir, rtl_dir)
   os.makedirs(output_dir, exist_ok=True)
-  for filepath, verible_tree in parsed_rtl.items():
-    filename = os.path.basename(filepath)
-    print(f"-- Constructing CDFGs from: {filepath} --")
-    rtl_file_obj = RtlFile(verible_tree, filepath)
-    if rtl_file_obj.num_always_blocks == 0:
-      print(f"-- Skipping {filename} because it has no always blocks --\n")
-      continue
-    pkl_name = filename.replace(".sv", ".rtlfile.pkl")
-    with open(os.path.join(output_dir, pkl_name), "wb") as f:
-      pickle.dump(rtl_file_obj, f)
-    print(f"-- CDFGs successfully constructed! --\n")
+  pkl_name = os.path.join(output_dir, "design_graph.pkl")
+  with open(pkl_name, "wb") as f:
+    pickle.dump(design_graph, f)
+  print("Saved design graph to {}".format(pkl_name))
+
+
+class DesignGraph:
+  """Class to manage CDFGs in a design"""
+
+  def __init__(self, parsed_rtl_dir: str, rtl_dir: str):
+    self.parsed_rtl_dir = parsed_rtl_dir
+    self.rtl_dir = rtl_dir
+    self.construct_rtl_files()
+    self.postprocess()
+
+  def construct_rtl_files(self):
+    """Construct RtlFile objects from parsed RTL files."""
+    parsed_rtl = get_verible_parsed_rtl(self.parsed_rtl_dir,
+                                        orig_dir=self.rtl_dir)
+    self.rtl_files = []
+    for filepath, verible_tree in parsed_rtl.items():
+      filename = os.path.basename(filepath)
+      print(f"-- Constructing CDFGs from: {filepath} --")
+      rtl_file_obj = RtlFile(verible_tree, filepath)
+      if rtl_file_obj.num_always_blocks == 0:
+        print(f"-- Skipping {filename} because it has no always blocks --\n")
+        del rtl_file_obj
+        continue
+      self.rtl_files.append(rtl_file_obj)
+    print(
+        f"-- CDFGs successfully constructed from design {self.rtl_dir}! --\n")
+
+  def postprocess(self):
+    """Postprocess DesignGraph the after RtlFile objects are created."""
+    # Line up all nodes within the design graph
+    self.nodes = []
+    self.node_to_index = {}
+    idx_offset = 0
+    for rtl_file in self.rtl_files:
+      nodes = rtl_file.nodes
+      self.nodes.extend(nodes)
+      for i, n in enumerate(nodes):
+        self.node_to_index[n] = i + idx_offset
+      idx_offset = len(self.nodes)
 
 
 class RtlFile:
@@ -420,7 +456,20 @@ class RtlFile:
       self.rtl_content = f.read()
     self.modules = []
     self.construct_modules()
-    # Post module construction
+    self.postprocess()
+
+  def construct_modules(self):
+    """Construct all modules found in the file."""
+    module_subtrees = find_subtree(self.verible_tree, Tag.MODULE)
+    if len(module_subtrees) > 1:
+      print(
+          f"{self.filepath} has {len(module_subtrees)}(!= 1) module subtrees, "
+          f"this may not work with other components of this tool.")
+    if module_subtrees:
+      self.modules = [Module(mst, self.rtl_content) for mst in module_subtrees]
+
+  def postprocess(self):
+    """Post-process the RtlFile object after all modules are constructed."""
     self.num_always_blocks = sum([len(m.always_graphs) for m in self.modules])
     # Line up all nodes within RTL module
     self.nodes = []
@@ -437,16 +486,6 @@ class RtlFile:
         self.line_number_to_nodes[line_num] = []
       self.line_number_to_nodes[line_num].append(n)
       self.node_to_index[n] = i
-
-  def construct_modules(self):
-    """Construct all modules found in the file."""
-    module_subtrees = find_subtree(self.verible_tree, Tag.MODULE)
-    if len(module_subtrees) > 1:
-      print(
-          f"{self.filepath} has {len(module_subtrees)}(!= 1) module subtrees, "
-          f"this may not work with other components of this tool.")
-    if module_subtrees:
-      self.modules = [Module(mst, self.rtl_content) for mst in module_subtrees]
 
 
 class Module:
@@ -501,4 +540,4 @@ if __name__ == "__main__":
   parser.add_argument("-od", "--output_dir", default="generated/cdfgs",
                       help="Directory where parsed CDFGs are saved")
   args = parser.parse_args()
-  construct_cdfgs_from_rtl(**vars(args))
+  construct_design_graph(**vars(args))

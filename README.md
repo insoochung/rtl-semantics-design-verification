@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 ### Generate data
 
-#### Overview
+#### 0. Overview
 
 To train a design2vec framework, we need datapoints in form of:
 ```json
@@ -36,14 +36,56 @@ In order to generate such datapoints, we need to:
 
 1. Simulate design to get coverage information per set of test parameters via URG reports.
 2. Parse RTL representation into a set of ASTs using verible.
-3. Convert ASTs into CDFGs.
-4. Match the branches in URG reports to subpaths within CDFGs.
+3. Convert ASTs into CDFGs (uses results from step 2).
+4. Match the branches in URG reports to subpaths within CDFGs (uses results from step 1).
+5. Generate data for NN training and evaluation (uses results from step 3, 4).
 
-#### Design simulation and RTL2AST
+#### 1. Obtaining branch coverage per design
 
 `README.md` in each design's directory explains the process.
 - [ibex_v1](designs/ibex_v1/)
 
-#### Parse simulation reports to training data points
+#### 2. Converting RTL to AST
 
-TODO
+1. Build and install verible commands according to the documents [here](third_party/verible/). This [script](https://github.com/google/riscv-dv/blob/07606315fb0ce03e1ecfbbf9e846e0385aeaacd9/verilog_style/build-verible.sh) provides a good reference.
+
+
+2. Parse RTL files using verible. The json files are utilized by CDFG constructor, and tree files are more readable.
+
+```bash
+# A. Parse design to json format
+for sv in $RTL_DIR/*sv
+do
+  verible-verilog-syntax  $sv  --printtree --export_json > $PARSE_RESULTS_DIR/$(basename -- $sv).json
+done
+
+# B. Parse design to tree format
+for sv in $RTL_DIR/*sv
+do
+  verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
+done
+```
+
+#### 3. Converting AST to CDFG
+
+This step will convert AST json files generated from previous step 2 to CDFGs.
+
+```bash
+python cdfg/constructor.py --parsed_rtl_dir $PARSE_RESULTS_DIR --rtl_dir $RTL_DIR --output_dir $CDFG_DIR
+```
+
+#### 4. Matching branches to CDFG subpaths
+
+The HTML coverage report generated from step 1 is converted into YAML files containing coverage information.
+
+```bash
+python coverage/extract_from_urg.py --report_dir $URG_REPORT_DIR --output_dir $COV_YAML_DIR
+```
+
+#### 5. Generate training and test data
+
+This final step creates data in format required for design2vec training.
+
+```bash
+python cdfg/d2v_datagen.py --sim_cov_dir $COV_YAML_DIR --cdfg_dir $CDFG_DIR --output_dir $NN_DATA_DIR
+```

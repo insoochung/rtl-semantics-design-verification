@@ -1,6 +1,12 @@
 import re
+import os
+import sys
+
 from typing import List, Union
-from constants import Tag
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from cdfg.constants import Tag
 
 
 def get_log_fn(verbose=True):
