@@ -11,7 +11,7 @@ class DatasetSaver:
       self.load_from_file()
 
   def load_from_file(self):
-    self.data = np.load(self.filepath)
+    self.data = np.load(self.filepath, allow_pickle=True)
 
   def save_to_file(self):
     np.save(self.filepath, self.data)
@@ -76,7 +76,7 @@ class TestParameterVocab:
     self.test_template_path = test_template_path
     assert vocab_filepath or test_template_path, (
         "Must provide either vocab_filepath or test_template_path")
-    if vocab_filepath:
+    if vocab_filepath and os.path.exists(vocab_filepath):
       self.load_from_file()  # Vocab filepath takes precedence
     elif test_template_path:
       self.generate_from_test_template()

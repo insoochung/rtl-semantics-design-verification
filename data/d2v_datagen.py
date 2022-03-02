@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from cdfg.constructor import (
-    DesignGraph, RtlFile, Module, construct_design_graph)
+    DesignGraph, Module, construct_design_graph)
 from cdfg.graph import Node, BranchNode, EndNode
 from cdfg.constants import Condition
 from coverage.extract_from_urg import extract as extract_from_urg
@@ -35,8 +35,11 @@ def _load_pkl(pkl_file: str):
 
 def get_dataset_utilites(test_templates_dir: str, output_dir: str):
   """Construct vocabulary that contains vectorization information for TPs"""
-
+  os.makedirs(output_dir, exist_ok=True)
   vocab_files = glob(os.path.join(output_dir, "vocab.*.yaml"))
+  bvocab_filepath = os.path.join(output_dir, "vocab.branches.yaml")
+  if bvocab_filepath in vocab_files:
+    vocab_files.remove(bvocab_filepath)
   assert len(vocab_files) <= 1, "There should be only one or no vocab file"
 
   if not vocab_files:
@@ -183,11 +186,9 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
   sim_covs = load_simulator_coverage(sim_cov_dir)
   # Compose a dictionary of module graphs
   module_graphs = {}
-  for rtl_file in design_graph.rtl_files:
-    assert len(rtl_file.modules) == 1, (
-        "There should be only one module per RtlFile")
-    module_name = rtl_file.filepath.split("/")[-1].split(".")[0]
-    module_graphs[module_name] = rtl_file
+  for module in design_graph.modules:
+    module_name = module.module_name
+    module_graphs[module_name] = module
   # Load test
   testfiles = glob(os.path.join(test_dir, "*.yaml"))
   assert len(testfiles) == 1, (

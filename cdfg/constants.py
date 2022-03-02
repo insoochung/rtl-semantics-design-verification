@@ -1,5 +1,6 @@
 class Tag:
   MODULE = "kModuleDeclaration"
+  MODULE_HEADER = "kModuleHeader"
   ALWAYS = "kAlwaysStatement"
   ALWAYS_CONTENT = "kProceduralTimingControlStatement"
   ALWAYS_CONDITION = "kEventControl"
