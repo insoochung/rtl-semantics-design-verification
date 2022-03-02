@@ -78,8 +78,9 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   assert if_body_node["tag"] == Tag.IF_BODY
   assert len(if_body_node["children"]) == 1
   block_node = if_body_node["children"][0]
-  assert block_node["tag"] in Tag.TERMINAL_STATEMENTS + [Tag.SEQ_BLOCK]
-  if block_node["tag"] == Tag.SEQ_BLOCK:
+  assert block_node["tag"] in Tag.TERMINAL_STATEMENTS + Tag.BLOCK_STATEMENTS, (
+      f"{block_node['tag']} is not a terminal statement or sequence block.")
+  if block_node["tag"] in Tag.BLOCK_STATEMENTS:
     if_nodes = construct_block(
         block_node, rtl_content, block_depth=block_depth + 1)
   else:  # Tag.TERMINAL_STATEMENTS
@@ -104,8 +105,16 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
     else_body_node = else_clause["children"][1]
     assert len(else_body_node["children"]) == 1, f"{else_body_node}"
     block_node = else_body_node["children"][0]
-    else_nodes = construct_block(
-        block_node, rtl_content, block_depth=block_depth + 1)
+    assert block_node["tag"] in Tag.TERMINAL_STATEMENTS + Tag.BLOCK_STATEMENTS, (
+        f"{block_node['tag']} is not a terminal statement or sequence block.")
+    if block_node["tag"] in Tag.BLOCK_STATEMENTS:
+      else_nodes = construct_block(
+          block_node, rtl_content, block_depth=block_depth + 1)
+    else:  # Tag.TERMINAL_STATEMENTS
+      else_node = construct_statement(block_node, rtl_content,
+                                      block_depth=block_depth + 1)
+      else_nodes = [else_node]
+
     # Connect else-body node to branch node.
     connect_nodes(branch_node, else_nodes[0], condition=Condition.FALSE)
     # Connect else-body node to end node.
@@ -337,23 +346,30 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   if always_node.type in ["always_ff", "always"]:
     content = children[1]["children"]
     assert len(content) == 2
-    condition, seq_block = content[0], content[1]
+    condition, body = content[0], content[1]
     assert condition["tag"] == Tag.ALWAYS_CONDITION
     always_node.condition = get_subtree_text(
         condition, always_node.rtl_content)
   else:
     assert always_node.type in ["always_comb", "always_latch"], (
         f"Unknown '{always_node.type}' type.")
-    seq_block = children[1]
-  assert seq_block["tag"] == Tag.SEQ_BLOCK
-  block_nodes = construct_block(
-      seq_block, always_node.rtl_content,
-      block_depth=always_node.block_depth + 1)
-  assert block_nodes, "Seq block is empty."
-  # Arbitrary end always_node.
+    body = children[1]
+
+  if body["tag"] in Tag.BLOCK_STATEMENTS:
+    body_nodes = construct_block(
+        body, always_node.rtl_content,
+        block_depth=always_node.block_depth + 1)
+    assert body_nodes, "Seq block is empty."
+    # Arbitrary end always_node.
+  else:
+    body_nodes = construct_statement(body, always_node.rtl_content,
+                                     block_depth=always_node.block_depth + 1)
+    if not isinstance(body_nodes, list):
+      body_nodes = [body_nodes]
+
   always_node.end_node = EndNode(block_depth=always_node.block_depth)
-  connect_nodes(always_node, block_nodes[0])
-  connect_nodes(block_nodes[-1], always_node.end_node)
+  connect_nodes(always_node, body_nodes[0])
+  connect_nodes(body_nodes[-1], always_node.end_node)
   # Loop back to the start node.
   connect_nodes(always_node.end_node, always_node)
 
@@ -423,11 +439,12 @@ class RtlFile:
   def construct_modules(self):
     """Construct all modules found in the file."""
     module_subtrees = find_subtree(self.verible_tree, Tag.MODULE)
-    assert len(module_subtrees) <= 1, (
-        f"{self.filepath} has {len(module_subtrees)} module subtrees, "
-        f"but there should be at most one.")
+    if len(module_subtrees) > 1:
+      print(
+          f"{self.filepath} has {len(module_subtrees)}(!= 1) module subtrees, "
+          f"this may not work with other components of this tool.")
     if module_subtrees:
-      self.modules = [Module(module_subtrees[0], self.rtl_content)]
+      self.modules = [Module(mst, self.rtl_content) for mst in module_subtrees]
 
 
 class Module:
