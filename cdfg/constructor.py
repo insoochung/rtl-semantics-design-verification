@@ -5,6 +5,8 @@ import argparse
 import pickle
 from typing import Union
 
+import tqdm
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from cdfg.constants import Tag, Condition
@@ -359,6 +361,7 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   connect_nodes(block_nodes[-1], always_node.end_node)
   # Loop back to the start node.
   connect_nodes(always_node.end_node, always_node)
+  always_node.update_text_and_type(force_end=block_nodes[0].start)
 
   # Post process the always node.
   always_node.update_condition_vars()
@@ -383,6 +386,11 @@ class DesignGraph:
   def __init__(self, parsed_rtl_dir: str, rtl_dir: str):
     self.parsed_rtl_dir = parsed_rtl_dir
     self.rtl_dir = rtl_dir
+    self.s2v_model = None
+    self.s2v_tokenizer = None
+    self.s2v_config = {
+        "name": "microsoft/codebert-base-mlm"
+    }
     self.construct_rtl_files()
     self.postprocess()
 
@@ -415,6 +423,29 @@ class DesignGraph:
       for i, n in enumerate(nodes):
         self.node_to_index[n] = i + idx_offset
       idx_offset = len(self.nodes)
+    self.add_seq_vec_to_nodes()
+
+  def load_s2v_model(self):
+    from transformers import AutoModel, AutoTokenizer
+    config = self.s2v_config
+    print("Loading S2V model...")
+    model = AutoModel.from_pretrained(config["name"])
+    tokenizer = AutoTokenizer.from_pretrained(config["name"])
+    print("S2V model loaded!")
+    self.s2v_model = model
+    self.s2v_tokenizer = tokenizer
+
+  def add_seq_vec_to_nodes(self):
+    """Add sequence vector to all nodes."""
+    if not self.s2v_model:
+      self.load_s2v_model()
+    print("Adding sequence vectors to nodes...")
+    for node in tqdm.tqdm(self.nodes):
+      text = node.text.strip()
+      toks = self.s2v_tokenizer(text, return_tensors="pt")
+      pt_out = self.s2v_model(**toks)
+      node.seq_vec = pt_out["pooler_output"].detach().numpy()
+    print("Sequence vectors added to nodes!")
 
 
 class RtlFile:

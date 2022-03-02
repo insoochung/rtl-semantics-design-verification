@@ -3,3 +3,5 @@ tqdm
 PyYaml
 junit_xml
 beautifulsoup4
+torch
+transformers
