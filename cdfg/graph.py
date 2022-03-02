@@ -1,13 +1,18 @@
+import os
+import sys
+
 from typing import List, Tuple
 
-from constants import Tag, Condition
-from utils import (get_indent_str,
-                   preprocess_rtl_str,
-                   find_subtree,
-                   get_subtree_text_info,
-                   get_branch_condition_tree,
-                   get_case_item_tree,
-                   get_symbol_identifiers_in_tree)
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from cdfg.constants import Tag, Condition
+from cdfg.utils import (get_indent_str,
+                        preprocess_rtl_str,
+                        find_subtree,
+                        get_subtree_text_info,
+                        get_branch_condition_tree,
+                        get_case_item_tree,
+                        get_symbol_identifiers_in_tree)
 
 
 class Node:

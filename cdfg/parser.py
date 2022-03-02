@@ -1,10 +1,12 @@
 import os
 import json
-
+import sys
 from zipfile import ZipFile
 from glob import glob
 
-from utils import get_log_fn
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from cdfg.utils import get_log_fn
 
 
 def get_verible_parsed_rtl(parsed_dir,

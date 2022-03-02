@@ -2,6 +2,7 @@ import os
 import subprocess
 import shutil
 import argparse
+import tempfile
 from glob import glob
 
 
@@ -14,9 +15,13 @@ def run_test(test_path, output_dir, verification_dir):
 
   test_id = os.path.basename(test_path).replace(".yaml", "")
   test_output_dir = os.path.join(output_dir, test_id)
+  urg_report_dir = os.path.join(test_output_dir, "urg_report")
+  if os.path.exists(urg_report_dir):
+    print(f"Skipping '{test_path}' as it has already been simulated, "
+          f"see '{urg_report_dir}'\n")
+    return
+
   os.makedirs(test_output_dir, exist_ok=True)
-  sim_output_dir = os.path.join(test_output_dir, "sim_out")
-  urg_report_dir = os.path.join(sim_output_dir, "rtl_sim", "urgReport")
 
   testlist_dir = os.path.join(verification_dir, "riscv_dv_extension")
   testlist_path = os.path.join(testlist_dir, "testlist.yaml")
@@ -24,28 +29,30 @@ def run_test(test_path, output_dir, verification_dir):
 
   # Backup original testlist.yaml
   if os.path.exists(testlist_path):
-    os.rename(testlist_path, testlist_backup_path)
+    shutil.move(testlist_path, testlist_backup_path)
   # Overwrite testlist.yaml with test to simulate
   shutil.copy(test_path, testlist_path)
   prev_dir = os.getcwd()
   os.chdir(verification_dir)  # Move to verification directory
-  cmd = (f"make SEED=123 SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 "
-         f"OUT={sim_output_dir}")
-  with open(os.path.join(test_output_dir, "sim.stdout"), "w") as stdout, \
-          open(os.path.join(test_output_dir, "sim.stderr"), "w") as stderr:
-    try:
-      return_code = subprocess.run(
-          cmd.split(" "), stdout=stdout, stderr=stderr, check=True)
-      os.rename(urg_report_dir,  # Move urg report to test output directory
-                os.path.join(test_output_dir, "urg_report"))
-    except subprocess.CalledProcessError as e:
-      print(f"Simulation failed: {e}")
-  if os.path.exists(sim_output_dir):  # Remove simulation output directory
-    shutil.rmtree(sim_output_dir)
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    temp_urg_dir = os.path.join(temp_dir, "rtl_sim", "urgReport")
+    cmd = (f"make SEED=123 SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 "
+           f"OUT={temp_dir}")
+    with open(os.path.join(test_output_dir, "sim.stdout"), "w") as stdout, \
+            open(os.path.join(test_output_dir, "sim.stderr"), "w") as stderr:
+      try:
+        subprocess.run(
+            cmd.split(" "), stdout=stdout, stderr=stderr, check=True)
+        shutil.move(temp_urg_dir,  # Move urg report to test output directory
+                    urg_report_dir)
+      except subprocess.CalledProcessError as e:
+        print(f"ERROR: {e}")
+
   # Keep a backup of test in the output directory
-  shutil.copy(test_path, output_dir)
+  shutil.copy(test_path, test_output_dir)
   if os.path.exists(testlist_backup_path):  # Restore original testlist.yaml
-    os.rename(testlist_backup_path, testlist_path)
+    shutil.move(testlist_backup_path, testlist_path)
   os.chdir(prev_dir)  # Come back to original directory
 
   print(f"Simulation finished for '{test_path}'")
