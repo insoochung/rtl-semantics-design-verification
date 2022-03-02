@@ -248,6 +248,16 @@ class EndNode(Node):
     self.type = "end"
 
 
+class DummyNode(Node):
+  """Node class that specifies an empty space"""
+
+  def __init__(self, verible_tree: dict = None, rtl_content: str = "",
+               block_depth: int = 0):
+    super().__init__(verible_tree=verible_tree,
+                     rtl_content=rtl_content, block_depth=block_depth)
+    self.type = "dummy"
+
+
 class BranchNode(Node):
   """Node class that specifies a branching point"""
 

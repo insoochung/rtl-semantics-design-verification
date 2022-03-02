@@ -5,7 +5,7 @@ import pickle
 from typing import Union
 
 from constants import Tag, Condition
-from graph import Node, BranchNode, EndNode, AlwaysNode
+from graph import Node, BranchNode, EndNode, AlwaysNode, DummyNode
 from parser import get_verible_parsed_rtl
 from utils import (preprocess_rtl_str,
                    find_subtree,
@@ -17,6 +17,7 @@ from utils import (preprocess_rtl_str,
 
 def _get_start_end_node(nodes: Union[tuple, list]):
   """Get real start and end nodes of a block."""
+  assert len(nodes)
   start_node = get_leftmost_node(nodes)
   end_node = get_rightmost_node(nodes)
   assert isinstance(start_node, Node) and isinstance(end_node, Node)
@@ -333,9 +334,10 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
     if i == 0:
       continue
     connect_nodes(nodes[i - 1], n)
+  if not nodes:
+    return [DummyNode(block_depth=block_depth)]
 
-  start_node, end_node = _get_start_end_node(nodes)
-  return start_node, end_node
+  return _get_start_end_node(nodes)  # start_node, end_node
 
 
 def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int = 0):
