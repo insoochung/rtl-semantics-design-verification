@@ -435,7 +435,7 @@ class DesignGraph:
     idx_offset = 0
     for module in self.modules:
       self.nodes.extend(module.nodes)
-      self.module_start_index = idx_offset
+      self.module_start_index.append(idx_offset)
       for i, n in enumerate(module.nodes):
         self.node_to_index[n] = i + idx_offset
       idx_offset = len(self.nodes)

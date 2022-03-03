@@ -1,4 +1,3 @@
-from email import parser
 import os
 import sys
 import argparse
@@ -6,19 +5,36 @@ import argparse
 import tqdm
 import numpy as np
 from scipy.sparse import csr_matrix
+from spektral.data import Dataset
+from spektral.data.graph import Graph
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-# from cdfg.constructor import DesignGraph, Module
-# from cdfg.graph import Node, BranchNode, EndNode
+from cdfg.constructor import DesignGraph, Module
 from data.utils import NodeVocab, load_pkl
 
 
-class GraphVectorizer:
+class GraphDataset(Dataset):
+  def __init__(self, graphs, **kwargs):
+    self.graphs = graphs
+    super().__init__(**kwargs)
+
+  def download(self):
+    return
+
+  def read(self):
+    outputs = []
+    for x, a in zip(self.graphs["x"], self.graphs["a"]):
+      outputs.append(Graph(x=x, a=a))
+    return outputs
+
+
+class GraphHandler:
   def __init__(self, design_graph_filepath: str = "", output_dir: str = ""):
     self.design_graph_filepath = design_graph_filepath
     self.output_dir = output_dir or os.path.dirname(design_graph_filepath)
-    self.vocab_filepath = os.path.join(output_dir, "vocab.graph.yaml")
+    self.vocab_filepath = os.path.join(self.output_dir, "vocab.graph.yaml")
+    self.dataset_path = os.path.join(self.output_dir, "dataset.graphs.npy")
     self.s2v_model_name = "microsoft/codebert-base-mlm"
     self.design_graph = None
     self.vocab = None
@@ -27,11 +43,13 @@ class GraphVectorizer:
     if design_graph_filepath and os.path.exists(design_graph_filepath):
       self.design_graph = load_pkl(design_graph_filepath)
 
-  def maybe_set_vocab(self):
+  def load_or_generate_vocab(self):
     if self.vocab:
       return
     os.makedirs(self.output_dir, exist_ok=True)
     self.vocab = NodeVocab(self.vocab_filepath)
+    if self.vocab.is_loaded():
+      return
     # Gather information for vectorization
     type_info = set()
     block_depth_info = {"min": 1e9, "max": 0}
@@ -56,7 +74,7 @@ class GraphVectorizer:
 
   def vectorize_design_graph(self):
     print("Converting design graph to numpy matrices...")
-    self.maybe_set_vocab()  # Load vocabulary in case it is not loaded
+    self.load_or_generate_vocab()  # Load vocabulary in case it is not loaded
     # Calcuate to pad each graph to max length
     num_nodes_max = 0
     for module in self.design_graph.modules:
@@ -96,15 +114,29 @@ class GraphVectorizer:
 
     return self.graphs, self.adjs
 
+  def load_from_file(self):
+    print("Loading design graph from file...")
+    assert os.path.exists(self.dataset_path), (
+        f"{self.dataset_path} does not exist.")
+    self.load_or_generate_vocab()
+    data = dict(np.load(self.dataset_path, allow_pickle=True).item())
+    self.graphs = data["x"]
+    self.adjs = data["a"]
+    print(f"Done loading design graph from '{self.dataset_path}'.")
+
+  def get_dataset(self):
+    assert self.graphs is not None and self.adjs is not None
+    return GraphDataset(graphs={"x": self.graphs, "a": self.adjs})
+
   def save_to_file(self):
     print("Saving design graph to file...")
-    if not self.graphs or not self.adjs:
+    if self.graphs is None or self.adjs is None:
       self.design_graph_to_numpy()
     os.makedirs(self.output_dir, exist_ok=True)
-    np.savez(os.path.join(self.output_dir, "graphs.vectorized.npy"),
-             x=self.graphs, a=self.adjs)
+
+    np.save(self.dataset_path, {"x": self.graphs, "a": self.adjs})
     self.vocab.save_to_file()
-    print("Done saving design graph to file.")
+    print(f"Done saving design graph to '{self.dataset_path}'.")
 
 
 def main():
@@ -114,8 +146,9 @@ def main():
   parser.add_argument("-od", "--output_dir", type=str,
                       help="Where to save the output files")
   args = parser.parse_args()
-  wrapper = GraphVectorizer(args.design_graph_filepath, args.output_dir)
-  wrapper.vectorize_design_graph()
+  handler = GraphHandler(args.design_graph_filepath, args.output_dir)
+  handler.vectorize_design_graph()
+  handler.save_to_file()
 
 
 if __name__ == "__main__":

@@ -19,20 +19,23 @@ def load_pkl(pkl_file: str):
   return ret
 
 
-class DatasetSaver:
+class TestParameterCoverageHandler:
   def __init__(self, filepath: str = ""):
     self.filepath = filepath
     self.data = {}
+    self.cov_to_dp = {}
+    self.stale = False
     if filepath and os.path.exists(filepath):
       self.load_from_file()
 
   def load_from_file(self):
-    self.data = np.load(self.filepath, allow_pickle=True)
+    self.data = np.load(self.filepath, allow_pickle=True).item()
 
   def save_to_file(self):
     np.save(self.filepath, self.data)
 
   def add(self, tp_vectors, is_hits, coverpoints):
+    self.stale = True
     if "tp_vectors" not in self.data:
       self.data["tp_vectors"] = tp_vectors
     else:
@@ -54,6 +57,34 @@ class DatasetSaver:
           f"is_hits {self.data['is_hits'].shape}, "
           f"coverpoints {self.data['coverpoints'].shape}")
 
+  def arrange_dataset_by_coverpoint(self):
+    if not self.stale and len(self.cov_to_dp) > 0:
+      return self.cov_to_dp
+    cov_to_dp = {}
+    for i in range(self.data["tp_vectors"].shape[0]):
+      tp_vector = self.data["tp_vectors"][i]
+      is_hit = self.data["is_hits"][i]
+      coverpoint = int(self.data["coverpoints"][i][0])
+      if coverpoint not in cov_to_dp:
+        cov_to_dp[coverpoint] = {
+            "tp_vectors": np.zeros(shape=(0, tp_vector.shape[-1])),
+            "is_hits": np.zeros(shape=(0))}
+      cov_to_dp[coverpoint]["tp_vectors"] = np.append(
+          cov_to_dp[coverpoint]["tp_vectors"],
+          tp_vector.reshape(1, -1), axis=0)
+      cov_to_dp[coverpoint]["is_hits"] = np.append(
+          cov_to_dp[coverpoint]["is_hits"],
+          is_hit, axis=0)
+    hit_rates = []
+    for cov, dp in cov_to_dp.items():
+      dp["hit_rate"] = np.mean(dp["is_hits"])
+      hit_rates.append(dp["hit_rate"])
+    print(f"{sorted(hit_rates)}")
+
+    self.cov_to_dp = cov_to_dp
+    self.stale = False
+    return cov_to_dp
+
 
 class NodeVocab:
   def __init__(self, vocab_filepath: str = ""):
@@ -64,10 +95,15 @@ class NodeVocab:
 
   def load_from_file(self):
     self.vocab = load_yaml(self.vocab_filepath)
+    print(f"Loaded vocab from {self.vocab_filepath}")
 
   def save_to_file(self):
     with open(self.vocab_filepath, "w") as f:
       yaml.dump(self.vocab, f)
+    print(f"Saved vocab to {self.vocab_filepath}")
+
+  def is_loaded(self):
+    return len(self.vocab["nodes"]) > 0
 
   def load_s2v_model(self, model_name):
     from transformers import AutoModel, AutoTokenizer
@@ -156,6 +192,8 @@ class TestParameterVocab:
   def __init__(self, vocab_filepath: str = "", test_template_path: str = ""):
     self.vocab_filepath = vocab_filepath
     self.test_template_path = test_template_path
+    self.tokens = None
+    self.meta = None
     assert vocab_filepath or test_template_path, (
         "Must provide either vocab_filepath or test_template_path")
     if vocab_filepath and os.path.exists(vocab_filepath):

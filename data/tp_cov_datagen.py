@@ -16,7 +16,7 @@ from cdfg.graph import Node, BranchNode, EndNode
 from cdfg.constants import Condition
 from coverage.extract_from_urg import extract as extract_from_urg
 from data.utils import (BranchVocab, TestParameterVocab, CoveredTestList,
-                        DatasetSaver, load_yaml, load_pkl)
+                        TestParameterCoverageHandler, load_yaml, load_pkl)
 
 
 def get_dataset_utilites(test_templates_dir: str, output_dir: str):
@@ -47,10 +47,10 @@ def get_dataset_utilites(test_templates_dir: str, output_dir: str):
   bvocab = BranchVocab(vocab_filepath=bvocab_filepath)
   covered_tests_filepath = os.path.join(output_dir, "covered_tests.txt")
   covered_tests = CoveredTestList(covered_tests_filepath)
-  dataset_path = os.path.join(output_dir, "dataset.npy")
-  dataset_saver = DatasetSaver(dataset_path)
+  dataset_path = os.path.join(output_dir, "dataset.tp_cov.npy")
+  tp_cov_handler = TestParameterCoverageHandler(dataset_path)
   utils = {"vocab": vocab, "bvocab": bvocab, "covered_tests": covered_tests,
-           "dataset_saver": dataset_saver}
+           "tp_cov_handler": tp_cov_handler}
   return utils
 
 
@@ -285,7 +285,7 @@ def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
   covered_tests = utils["covered_tests"]
   vocab = utils["vocab"]
   bvocab = utils["bvocab"]
-  dataset_saver = utils["dataset_saver"]
+  tp_cov_handler = utils["tp_cov_handler"]
   for test_dir in sorted(test_dirs):
     if not os.path.isdir(test_dir):
       continue
@@ -297,11 +297,11 @@ def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
     examples = generate_dataset_inner(test_dir, design_graph, vocab, bvocab)
     if not examples:
       continue
-    dataset_saver.add(**examples)
+    tp_cov_handler.add(**examples)
     covered_tests.add(test_dir)
 
   # These may have been updated, so save them.
-  dataset_saver.save_to_file()
+  tp_cov_handler.save_to_file()
   bvocab.save_to_file()
   covered_tests.save_to_file()
 
@@ -335,7 +335,7 @@ def main():
                       help="Directory to test templates")
 
   # Dataset related arguments
-  parser.add_argument("-od", "--output_dir", default="generated/dataset",
+  parser.add_argument("-od", "--output_dir", default="generated/tp_cov",
                       help="Directory to write the output files")
   args = parser.parse_args()
   extract_coverage = args.extract_coverage
