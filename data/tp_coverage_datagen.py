@@ -16,21 +16,7 @@ from cdfg.graph import Node, BranchNode, EndNode
 from cdfg.constants import Condition
 from coverage.extract_from_urg import extract as extract_from_urg
 from data.utils import (BranchVocab, TestParameterVocab, CoveredTestList,
-                        DatasetSaver)
-
-
-def _load_yaml(filepath: str):
-  """Loads a YAML file from the given filepath."""
-  with open(filepath, "r") as f:
-    ret = yaml.load(f, Loader=yaml.FullLoader)
-  return ret
-
-
-def _load_pkl(pkl_file: str):
-  """Loads the RTL file from the given pickle file."""
-  with open(pkl_file, "rb") as f:
-    ret = pickle.load(f)
-  return ret
+                        DatasetSaver, load_yaml, load_pkl)
 
 
 def get_dataset_utilites(test_templates_dir: str, output_dir: str):
@@ -75,7 +61,7 @@ def load_simulator_coverage(sim_cov_dir: str):
   """
   ret = {}
   for fp in glob(os.path.join(f"{sim_cov_dir}/*.yaml")):
-    cov = _load_yaml(fp)
+    cov = load_yaml(fp)
     cov["filepath"] = fp
     ret[cov["module_name"]] = cov
   return ret
@@ -93,7 +79,7 @@ def load_design_graph(design_graph_dir: str):
     assert len(pkls) == 1, (
         "There should be only one design graph file in the directory")
     pkl_path = pkls[0]
-  return _load_pkl(pkl_path)
+  return load_pkl(pkl_path)
 
 
 def preprocess_trace_conditions(trace_conditions: List[str]):
@@ -218,10 +204,10 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
     print(f"Syncing coverage for module: {module_name} - parsed from "
           f"'{sim_covs[module_name]['filepath']}'")
     module_coverage = {}
-    cdfg = module_graphs[module_name]
-    nodes = cdfg.nodes
+    module = module_graphs[module_name]
+    nodes = module.to_list()
     sum_nodes += len(nodes)
-    line_number_to_nodes_local = cdfg.line_number_to_nodes
+    line_number_to_nodes_local = module.line_number_to_nodes
 
     for sim_cov in sim_covs[module_name]["coverages"]:
       branch_line_nums = sim_cov["line_num"]

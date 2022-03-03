@@ -5,8 +5,6 @@ import argparse
 import pickle
 from typing import Union
 
-import tqdm
-
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from cdfg.constants import Tag, Condition
@@ -409,11 +407,6 @@ class DesignGraph:
     self.module_start_index = []
     self.nodes = []
     self.node_to_index = {}
-    self.s2v_model = None
-    self.s2v_tokenizer = None
-    self.s2v_config = {
-        "name": "microsoft/codebert-base-mlm"
-    }
     self.construct_modules()
     self.postprocess()
 
@@ -446,28 +439,6 @@ class DesignGraph:
       for i, n in enumerate(module.nodes):
         self.node_to_index[n] = i + idx_offset
       idx_offset = len(self.nodes)
-
-  def load_s2v_model(self):
-    from transformers import AutoModel, AutoTokenizer
-    config = self.s2v_config
-    print("Loading S2V model...")
-    model = AutoModel.from_pretrained(config["name"])
-    tokenizer = AutoTokenizer.from_pretrained(config["name"])
-    print("S2V model loaded!")
-    self.s2v_model = model
-    self.s2v_tokenizer = tokenizer
-
-  def add_seq_vec_to_nodes(self):
-    """Add sequence vector to all nodes."""
-    if not self.s2v_model:
-      self.load_s2v_model()
-    print("Adding sequence vectors to nodes...")
-    for node in tqdm.tqdm(self.nodes):
-      text = node.text.strip()
-      toks = self.s2v_tokenizer(text, return_tensors="pt")
-      pt_out = self.s2v_model(**toks)
-      node.seq_vec = pt_out["pooler_output"].detach().numpy()
-    print("Sequence vectors added to nodes!")
 
 
 class Module:

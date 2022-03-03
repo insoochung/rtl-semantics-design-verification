@@ -1,6 +1,22 @@
 import os
+import pickle
+
 import yaml
 import numpy as np
+
+
+def load_yaml(filepath: str):
+  """Loads a YAML file from the given filepath."""
+  with open(filepath, "r") as f:
+    ret = yaml.load(f, Loader=yaml.FullLoader)
+  return ret
+
+
+def load_pkl(pkl_file: str):
+  """Loads the RTL file from the given pickle file."""
+  with open(pkl_file, "rb") as f:
+    ret = pickle.load(f)
+  return ret
 
 
 class DatasetSaver:
@@ -39,6 +55,72 @@ class DatasetSaver:
           f"coverpoints {self.data['coverpoints'].shape}")
 
 
+class NodeVocab:
+  def __init__(self, vocab_filepath: str = ""):
+    self.vocab_filepath = vocab_filepath
+    self.vocab = {"nodes": [], "meta": {}}
+    if vocab_filepath and os.path.exists(vocab_filepath):
+      self.load_from_file()
+
+  def load_from_file(self):
+    self.vocab = load_yaml(self.vocab_filepath)
+
+  def save_to_file(self):
+    with open(self.vocab_filepath, "w") as f:
+      yaml.dump(self.vocab, f)
+
+  def load_s2v_model(self, model_name):
+    from transformers import AutoModel, AutoTokenizer
+    print("Loading S2V model...")
+    model = AutoModel.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    print("S2V model loaded!")
+    self.s2v = {"model": model, "tokenizer": tokenizer}
+
+  def add_node_info(self, element_name, element_type, element_info):
+    element = {
+        "name": element_name, "type": element_type, "info": element_info}
+    if element["type"] == "choice":
+      element["info"] = sorted(list(element["info"]))
+    self.vocab["nodes"].append(element)
+
+  def add_meta(self, key, info):
+    self.vocab["meta"][key] = info
+
+  def vectorize(self, node):
+    vecs = []
+    for element in self.vocab["nodes"]:
+      key = element["name"]
+      etype = element["type"]
+      val = getattr(node, key, None)
+      if etype == "int":
+        assert val is not None
+        # Normalize
+        val = float(element["info"]["max"] - val) / (
+            element["info"]["max"] - element["info"]["min"] + 1e-6)
+        vec = np.array([val])
+      elif etype == "choice":
+        assert val is not None
+        idx = element["info"].index(val)
+        vec = np.zeros(len(element["info"]))
+        vec[idx] = 1.
+      else:
+        assert etype == "vec", f"Unknown element type {etype}!"
+        if not val:
+          if not hasattr(self, "s2v"):
+            self.load_s2v_model(element["info"]["model_name"])
+          toks = self.s2v["tokenizer"](node.text.strip(), return_tensors="pt")
+          vec = self.s2v["model"](**toks)
+          vec = vec["pooler_output"].detach().numpy().flatten()
+        else:
+          vec = val
+        if not element["info"]["len"]:
+          element["info"]["len"] = vec.shape[0]
+        assert element["info"]["len"] == vec.shape[0]
+      vecs.append(vec)
+    return np.concatenate(vecs, axis=0)
+
+
 class BranchVocab:
   def __init__(self, vocab_filepath: str = ""):
     self.vocab_filepath = vocab_filepath
@@ -48,10 +130,10 @@ class BranchVocab:
       self.load_from_file()
 
   def load_from_file(self):
-    with open(self.vocab_filepath, "r") as f:
-      vocab = yaml.load(f)
+    vocab = load_yaml(self.vocab_filepath)
     self.branches = vocab["branches"]  # List of branch signatures
     self.signature_to_index = vocab["signature_to_index"]
+    print(f"Loaded branch vocab from {self.vocab_filepath}")
 
   def save_to_file(self):
     with open(self.vocab_filepath, "w") as f:
@@ -82,8 +164,7 @@ class TestParameterVocab:
       self.generate_from_test_template()
 
   def load_from_file(self):
-    with open(self.vocab_filepath, "rb") as f:
-      d = yaml.load(f, Loader=yaml.FullLoader)
+    d = load_yaml(self.vocab_filepath)
     self.tokens = d["tokens"]
     self.meta = d["param_info"]
     print(f"Loaded vocab from {self.vocab_filepath}")
@@ -96,9 +177,7 @@ class TestParameterVocab:
     print(f"Saved vocab to {self.vocab_filepath}")
 
   def generate_from_test_template(self):
-    with open(self.test_template_path, "rb") as f:
-      test_template = yaml.load(f, Loader=yaml.FullLoader)
-
+    test_template = load_yaml(self.test_template_path)
     test_parameters = test_template["gen_opts"]
     vocab = []
     idx = 0
