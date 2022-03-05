@@ -2,13 +2,13 @@
 # https://github.com/lowRISC/ibex/blob/0f69d4972c5184e8c8de41c4002fb914ef3ce10f/vendor/google_riscv-dv/docs/source/configuration.rst
 # Other parameters follow riscv_rand_test in :
 # https://github.com/lowRISC/ibex/blob/0f69d4972c5184e8c8de41c4002fb914ef3ce10f/dv/uvm/core_ibex/riscv_dv_extension/ml_testlist.yaml
+base_template: self
 test: generated_test_<id>
 description: generated_test_<id>
 iterations: 1
 no_iss: true
 gcc_opts: -mno-strict-align
 gen_test: riscv_ml_test
-rtl_test: core_ibex_reset_test
 no_post_compare: true
 gen_opts:
   num_of_tests:
@@ -44,7 +44,7 @@ gen_opts:
   no_wfi:
     description: Disable WFI instruction
     type: bool
-    forced_default: 1
+    default: 1
   set_mstatus_tw:
     description: Enable WFI to be treated as illegal instruction
     type: bool
@@ -84,7 +84,7 @@ gen_opts:
   no_data_page:
     description: Disable data page generation
     type: bool
-    forced_default: 0
+    default: 0
   disable_compressed_instr:
     description: Disable compressed instruction generation
     type: bool
@@ -105,9 +105,15 @@ gen_opts:
   signature_addr:
     description: Write to this addr to send data to testbench
     type: int
-    forced_default: 0
+    default: 0
+    min_val: 0
+    max_val: 0
   enable_interrupt:
     description: Enable MStatus.MIE, used in interrupt test
+    type: bool
+    default: 0
+  enable_nested_interrupt:
+    description: Enable nested interrupt
     type: bool
     default: 0
   enable_timer_irq:
