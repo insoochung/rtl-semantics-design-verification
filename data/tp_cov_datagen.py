@@ -33,11 +33,8 @@ def get_dataset_utilites(test_templates_dir: str, output_dir: str):
         f"No test templates directory given to generate vocab from")
     test_templates = glob(os.path.join(test_templates_dir, "*.yaml"))
     assert test_templates, f"No test templates found in '{test_templates_dir}'"
-    # TODO: Handle multiple test templates later on.
-    assert len(test_templates) == 1, (
-        f"Data generator can handle one test template at a time, "
-        f"but found {len(test_templates)} test templates")
-    vocab = TestParameterVocab(test_template_path=test_templates[0])
+
+    vocab = TestParameterVocab(test_templates_dir=test_templates_dir)
     vocab_filepath = os.path.join(
         output_dir, f"vocab.{len(vocab.tokens)}.yaml")
     vocab.save_to_file(vocab_filepath)

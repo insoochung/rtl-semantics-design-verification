@@ -1,6 +1,8 @@
 import os
 import pickle
 
+from glob import glob
+
 import yaml
 import numpy as np
 
@@ -30,6 +32,8 @@ class TestParameterCoverageHandler:
 
   def load_from_file(self):
     self.data = np.load(self.filepath, allow_pickle=True).item()
+    print(f"Loaded datapoints from dataset: "
+          f"shape: {[(k, v.shape) for k, v in self.data.items()]}, ")
 
   def save_to_file(self):
     np.save(self.filepath, self.data)
@@ -189,16 +193,16 @@ class BranchVocab:
 
 
 class TestParameterVocab:
-  def __init__(self, vocab_filepath: str = "", test_template_path: str = ""):
+  def __init__(self, vocab_filepath: str = "", test_templates_dir: str = ""):
     self.vocab_filepath = vocab_filepath
-    self.test_template_path = test_template_path
+    self.test_templates_dir = test_templates_dir
     self.tokens = None
     self.meta = None
-    assert vocab_filepath or test_template_path, (
-        "Must provide either vocab_filepath or test_template_path")
+    assert vocab_filepath or test_templates_dir, (
+        "Must provide either vocab_filepath or test_templates_dir")
     if vocab_filepath and os.path.exists(vocab_filepath):
       self.load_from_file()  # Vocab filepath takes precedence
-    elif test_template_path:
+    elif test_templates_dir:
       self.generate_from_test_template()
 
   def load_from_file(self):
@@ -215,12 +219,27 @@ class TestParameterVocab:
     print(f"Saved vocab to {self.vocab_filepath}")
 
   def generate_from_test_template(self):
-    test_template = load_yaml(self.test_template_path)
-    test_parameters = test_template["gen_opts"]
+    test_parameters = {}
+    tests = set()
+    for test_template_path in glob(
+            os.path.join(self.test_templates_dir, "*.yaml")):
+      test_template = load_yaml(test_template_path)
+      if "gen_opts" in test_template:
+        for k, v in test_template["gen_opts"].items():
+          assert k not in test_parameters, f"Duplicate parameter name {k}."
+          test_parameters[k] = v
+      if "rtl_test" in test_template:
+        tests.add(test_template["rtl_test"])
+    tests = sorted(list(tests))
+    test_parameters["rtl_test"] = {
+        "type": "choice",
+        "values": tests,
+        "default": tests[0]
+    }
     vocab = []
     idx = 0
-    for key in test_template["gen_opts"]:
-      gen_opt = test_template["gen_opts"][key]
+    for key in test_parameters:
+      gen_opt = test_parameters[key]
       gen_type = gen_opt["type"]
       description = ""
       min_val = None

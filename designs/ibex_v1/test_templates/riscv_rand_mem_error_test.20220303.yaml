@@ -1,0 +1,22 @@
+# 1)  +require_signature_addr must be 1 in gen_opts as well as in sim_opts.
+# 2)  +illegal_instr_ratio must be 0.
+# 3)  +no_ebreak must be 1.
+# 4)  +no_dret must be 1.
+# 5)  +no_wfi must be 1.
+# 6)  +enable_illegal_csr_instruction must be 0.
+# 7)  +enable_access_invalid_csr_level must be 0.
+# 8)  +no_csr_instr must be 1.
+
+rtl_test: core_ibex_mem_error_test
+sim_opts: >
+    +require_signature_addr=1
+gen_opts_restrictions:
+  forced_defaults:
+    require_signature_addr: 1
+    illegal_instr_ratio: 0
+    no_ebreak: 1
+    no_dret: 1
+    no_wfi: 1
+    enable_illegal_csr_instruction: 0
+    enable_access_invalid_csr_level: 0
+    no_csr_instr: 1

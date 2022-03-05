@@ -1,0 +1,35 @@
+# 1)  +require_signature_address must be 1.
+# 2)  If +gen_debug_section is 0, none of the values of the other debug ROM
+#     parameters will matter.
+# 3)  At most 1 of the parameters +enable_ebreak_in_debug_rom, +set_dcsr_ebreak,
+#     and +enable_debug_single_step may be enabled at once.
+# 4)  +illegal_instr_ratio must be 0.
+# 5)  +no_ebreak and +no_dret must be 1.
+# 6)  +set_mstatus_tw must be 0.
+# 7)  The RTL simulation plusarg +require_signature_addr under the sim_opts
+#     section of the test entry must be enabled.
+# 8)  The RTL simulation plusarg +enable_debug_seq must be enabled.
+# 9)  The RTL simulation plusarg +max_interval controls the maximum interval
+#     between debug request assertions.
+#     NOTE: keep this value very large for the time being.
+# 10) While not a constraint, it is recommended to keep +num_debug_sub_program
+#     fairly small, as larger values can easily cause frequent test timeouts.
+
+rtl_test: core_ibex_debug_intr_basic_test
+sim_opts: >
+  +require_signature_addr=1
+  +max_interval=100000
+  +enable_debug_seq=1
+gen_opts_restrictions:
+  forced_defaults:
+    require_signature_addr: 1
+    no_data_page: 0
+    illegal_instr_ratio: 0
+    no_ebreak: 1
+    no_dret: 1
+    set_mstatus_tw: 0
+    keep_num_debug_sub_program: 2
+  at_most_one:
+    - type: bool
+      opts: [enable_ebreak_in_debug_rom, set_dcsr_ebreak, enable_debug_single_step]
+

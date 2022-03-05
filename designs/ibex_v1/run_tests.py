@@ -46,17 +46,19 @@ def run_test(test_path, output_dir, verification_dir):
             cmd.split(" "), stdout=stdout, stderr=stderr, check=True)
         shutil.move(temp_urg_dir,  # Move urg report to test output directory
                     urg_report_dir)
+        print(f"Simulation finished for '{test_path}'")
+        print(f"- Test and coverage reports stored in '{test_output_dir}'\n")
       except subprocess.CalledProcessError as e:
         print(f"ERROR: {e}")
+        shutil.move(temp_dir, test_output_dir)
+        print(f"Simulation FAILED for '{test_path}'")
+        print(f"- Find failed simulation output in '{test_output_dir}'\n")
 
   # Keep a backup of test in the output directory
   shutil.copy(test_path, test_output_dir)
   if os.path.exists(testlist_backup_path):  # Restore original testlist.yaml
     shutil.move(testlist_backup_path, testlist_path)
   os.chdir(prev_dir)  # Come back to original directory
-
-  print(f"Simulation finished for '{test_path}'")
-  print(f"- Test and coverage reports stored in '{test_output_dir}'\n")
 
 
 def run(tests_dir: str, output_dir: str, verification_dir: str):
