@@ -1,3 +1,4 @@
+# Restrictions:
 # 1)  +require_signature_addr must be 1 in gen_opts as well as in sim_opts.
 # 2)  +illegal_instr_ratio must be 0.
 # 3)  +no_ebreak must be 1.
@@ -7,6 +8,7 @@
 # 7)  +enable_access_invalid_csr_level must be 0.
 # 8)  +no_csr_instr must be 1.
 
+base_template: base.20220303.yaml
 rtl_test: core_ibex_mem_error_test
 sim_opts: >
     +require_signature_addr=1

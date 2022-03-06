@@ -1,3 +1,4 @@
+# Restrictions:
 # 1)  +require_signature_address must be 1.
 # 2)  If +gen_debug_section is 0, none of the values of the other debug ROM
 #     parameters will matter.
@@ -15,6 +16,7 @@
 # 10) While not a constraint, it is recommended to keep +num_debug_sub_program
 #     fairly small, as larger values can easily cause frequent test timeouts.
 
+base_template: base.20220303.yaml
 rtl_test: core_ibex_debug_intr_basic_test
 sim_opts: >
   +require_signature_addr=1
@@ -28,7 +30,7 @@ gen_opts_restrictions:
     no_ebreak: 1
     no_dret: 1
     set_mstatus_tw: 0
-    keep_num_debug_sub_program: 2
+    num_debug_sub_program: 2
   at_most_one:
     - type: bool
       opts: [enable_ebreak_in_debug_rom, set_dcsr_ebreak, enable_debug_single_step]
