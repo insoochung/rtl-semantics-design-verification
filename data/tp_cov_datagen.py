@@ -315,7 +315,7 @@ def main():
                             "information is located."))
 
   # CDFG related arguments
-  parser.add_argument("-cg", "--construct_cdfg", default=False,
+  parser.add_argument("-cd", "--construct_design_graph", default=False,
                       action="store_true",
                       help="Extract CDFGs from parsed_rtl_dir.")
   parser.add_argument("-pr", "--parsed_rtl_dir",
@@ -337,7 +337,7 @@ def main():
   args = parser.parse_args()
   extract_coverage = args.extract_coverage
   simulated_tests_dir = args.simulated_tests_dir
-  construct_cdfg = args.construct_cdfg
+  construct_design_graph = args.construct_design_graph
   parsed_rtl_dir = args.parsed_rtl_dir
   rtl_dir = args.rtl_dir
   design_graph_dir = args.design_graph_dir
@@ -346,7 +346,7 @@ def main():
 
   if extract_coverage:
     extract_from_urg(report_dir=simulated_tests_dir, in_place=True)
-  if construct_cdfg:
+  if construct_design_graph:
     assert parsed_rtl_dir and rtl_dir, (
         "Must specify both parsed_rtl_dir and rtl_dir to construct CDFGs")
     construct_design_graph(parsed_rtl_dir, rtl_dir, design_graph_dir)

@@ -47,24 +47,8 @@ In order to generate such datapoints, we need to:
 
 #### 2. Converting RTL to AST
 
-1. Build and install verible commands according to the documents [here](third_party/verible/). This [script](https://github.com/google/riscv-dv/blob/07606315fb0ce03e1ecfbbf9e846e0385aeaacd9/verilog_style/build-verible.sh) provides a good reference.
-
-
-2. Parse RTL files using verible. The json files are utilized by CDFG constructor, and tree files are more readable.
-
-```bash
-# A. Parse design to json format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree --export_json > $PARSE_RESULTS_DIR/$(basename -- $sv).json
-done
-
-# B. Parse design to tree format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
-done
-```
+This too is explained in each `README.md`' of designs.
+- [ibex_v1](designs/ibex_v1/)
 
 #### 3. Converting AST to CDFG
 
@@ -79,7 +63,7 @@ python cdfg/constructor.py --parsed_rtl_dir $PARSE_RESULTS_DIR --rtl_dir $RTL_DI
 The HTML coverage report generated from step 1 is converted into YAML files containing coverage information.
 
 ```bash
-python coverage/extract_from_urg.py --report_dir $URG_REPORT_DIR --output_dir $COV_YAML_DIR
+python coverage/extract_from_urg.py --in_place --report_dir $URG_REPORT_DIR
 ```
 
 #### 5. Generate training and test data
@@ -87,5 +71,8 @@ python coverage/extract_from_urg.py --report_dir $URG_REPORT_DIR --output_dir $C
 This final step creates data in format required for design2vec training.
 
 ```bash
-python cdfg/d2v_datagen.py --sim_cov_dir $COV_YAML_DIR --cdfg_dir $CDFG_DIR --output_dir $NN_DATA_DIR
+# Vectorize CDFG to feed to GCN
+python data/cdfg_datagen.py --design_graph_filepath $CDFG_DIR/design_graph.pkl --output_dir $NN_DATA_DIR/cdfgs
+# Vectorize test parameters and coverage data to feed to NN trainling loop
+python data/tp_cov_datagen.py --design_graph_dir $CDFG_DIR --test_templates_dir $TEST_TEMPLATES_DIR --output_dir $NN_DATA_DIR/tp_coverage
 ```

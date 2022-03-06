@@ -31,7 +31,7 @@ apt-get install device-tree-compiler
 ```bash
 cd ibex/dv/uvm/core_ibex
 
-make SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 # TODO: feed in randomized tests instead of the default testsets.
+make SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1
 
 # You can find URG coverage report below.
 ls out/rtl_sim/urgReport
@@ -57,6 +57,25 @@ for sv in $RTL_DIR/*sv
 do
   verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
 done
+```
+
+## Automated test generation and test simulation
+
+1. Follow first two steps of `Simulation` to set all environment variables and build dependencies.
+
+2. Generate tests.
+
+```bash
+python generate_tests.py --template_dir ./test_templates/ --output_dir $GENERATED_TESTS_DIR --num_tests $NUM_TESTS
+# If you want to run a generated test
+# 1. Replace 'ibex/dv/uvm/core_ibex/riscv_dv_extension/testlist.yaml' with the generated test.
+# 2. Follow step 3 in `Simulation` section.
+```
+
+3. Run tests
+
+```bash
+python run_tests.py --tests_dir $GENERATED_TESTS_DIR --output_dir $SIMULATION_RESULTS_DIR --verification_dir ibex/dv/uvm/core_ibex
 ```
 
 ## Next
