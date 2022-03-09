@@ -61,7 +61,6 @@ class DvTestTemplate:
     knobs = self.apply_restrictions(content, knobs)
 
     content["gen_opts"] = "\n".join(f"+{k}={v}" for k, v in knobs.items())
-    content["template_name"] = self.template_name
 
     return [content]
 
@@ -79,16 +78,23 @@ class DvTestTemplate:
       base_content[k] = v
     return cls(base_content)
 
+  def dump_to_yaml(self, yaml_path, id_str="<undefined>"):
+    generated = self.generate(id_str)
+    assert len(generated) == 1
+    generated = generated[0]
+    gen_opts = generated["gen_opts"]
+    gen_opts_str = [" " * 4 + l for l in gen_opts.split("\n")]
+    gen_opts_str = "\n".join(["  gen_opts: >"] + gen_opts_str)
+
+    del generated["gen_opts"]
+    with open(yaml_path, "w") as f:
+      yaml.dump([generated], f)
+    with open(yaml_path, "a") as f:
+      f.write(gen_opts_str)
+
 
 def generate_tests(template_dir: str, output_dir: str, num_tests: int):
   """Generate tests given test template"""
-  def str_presenter(dumper, data):
-    if len(data.splitlines()) > 1:  # check for multiline string
-      return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
-    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
-
-  yaml.add_representer(str, str_presenter)
-
   # Load test templates
   templates = []
   for yaml_path in glob(os.path.join(template_dir, "*.yaml")):
@@ -103,8 +109,7 @@ def generate_tests(template_dir: str, output_dir: str, num_tests: int):
     # Sample a template from loaded templates
     template = np.random.choice(templates)
     id_str = f"{i:05d}"
-    with open(os.path.join(output_dir, f"{id_str}.yaml"), "w") as f:
-      yaml.dump(template.generate(id_str), f)
+    template.dump_to_yaml(os.path.join(output_dir, f"{id_str}.yaml"), id_str)
 
   print(f"Generated {num_tests} test cases in '{output_dir}'.")
 
