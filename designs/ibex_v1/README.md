@@ -40,24 +40,7 @@ ls out/rtl_sim/urgReport
 
 ## Parsing design to ASTs
 
-1. Build and install verible commands according to the documents [here](../../third_party/verible/).
-
-
-2. Parse RTL files using verible.
-
-```bash
-# A. Parse design to json format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree --export_json > $PARSE_RESULTS_DIR/$(basename -- $sv).json
-done
-
-# B. Parse design to tree format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
-done
-```
+1. `./parsed_rtl` contains AST files attained using verible. Use that or refer to [this document](../../docs/verible.md) to generate your own.
 
 ## Automated test generation and test simulation
 

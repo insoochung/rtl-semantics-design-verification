@@ -9,8 +9,10 @@ from glob import glob
 def run_test(test_path, output_dir, verification_dir):
   """Run a single test and retrieve coverage report"""
   print(f"Simulating '{test_path}' for coverage")
+  SEED = 0
   test_path = os.path.abspath(test_path)
   output_dir = os.path.abspath(output_dir)
+  output_dir = os.path.join(output_dir, f"seed-{SEED}")
   verification_dir = os.path.abspath(verification_dir)
 
   test_id = os.path.basename(test_path).replace(".yaml", "")
@@ -37,22 +39,27 @@ def run_test(test_path, output_dir, verification_dir):
 
   with tempfile.TemporaryDirectory() as temp_dir:
     temp_urg_dir = os.path.join(temp_dir, "rtl_sim", "urgReport")
-    cmd = (f"make SEED=123 SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 "
+    sim_log_path = os.path.join(temp_dir, f"seed-{SEED}/rtl_sim",
+                                f"generated_test_{test_id}.{SEED}/sim.log")
+    cmd = (f"make SEED={SEED} SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 "
            f"OUT={temp_dir}")
     with open(os.path.join(test_output_dir, "sim.stdout"), "w") as stdout, \
             open(os.path.join(test_output_dir, "sim.stderr"), "w") as stderr:
       try:
+        print(f"- Command: '{cmd}'")
         subprocess.run(
             cmd.split(" "), stdout=stdout, stderr=stderr, check=True)
         shutil.move(temp_urg_dir,  # Move urg report to test output directory
                     urg_report_dir)
+        shutil.move(sim_log_path, test_output_dir)
         print(f"Simulation finished for '{test_path}'")
         print(f"- Test and coverage reports stored in '{test_output_dir}'\n")
       except subprocess.CalledProcessError as e:
         print(f"ERROR: {e}")
-        shutil.move(temp_dir, test_output_dir)
+        reserve_dir = os.path.join(test_output_dir, "full_sim_dir")
+        shutil.copytree(temp_dir, reserve_dir)
         print(f"Simulation FAILED for '{test_path}'")
-        print(f"- Find failed simulation output in '{test_output_dir}'\n")
+        print(f"- Find failed simulation output in '{reserve_dir}'\n")
 
   # Keep a backup of test in the output directory
   shutil.copy(test_path, test_output_dir)

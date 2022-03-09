@@ -11,7 +11,7 @@
 #     are disabled.
 
 base_template: base.20220303.yaml
-rtl_test: core_ibex_reset_test
+rtl_test: core_ibex_base_test
 gen_opts_restrictions:
   forced_defaults:
     no_wfi: 1

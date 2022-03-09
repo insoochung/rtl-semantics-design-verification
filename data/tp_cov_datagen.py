@@ -145,6 +145,8 @@ def get_cdfg_subpath(branch_line_nums: List[int], trace_conditions: Tuple[int],
       "conditions")
   subpath_signature = tuple(cdfg_subpath)
   if subpath_signature in covered_subpaths:
+    # If different branch condition has same subpath, assert if they do have
+    # identical paths (e.g. solo if clause show same subpath for X and 1).
     _, covered_trace = covered_subpaths[subpath_signature]
     assert len(covered_trace) == len(trace_conditions)
     for i, (ct, t) in enumerate(zip(covered_trace, trace_conditions)):

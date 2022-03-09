@@ -32,7 +32,7 @@ class TestParameterCoverageHandler:
 
   def load_from_file(self):
     self.data = np.load(self.filepath, allow_pickle=True).item()
-    print(f"Loaded datapoints from dataset: "
+    print(f"Loaded datapoints from dataset: {self.filepath}"
           f"shape: {[(k, v.shape) for k, v in self.data.items()]}, ")
 
   def save_to_file(self):
@@ -64,6 +64,7 @@ class TestParameterCoverageHandler:
   def arrange_dataset_by_coverpoint(self):
     if not self.stale and len(self.cov_to_dp) > 0:
       return self.cov_to_dp
+
     cov_to_dp = {}
     for i in range(self.data["tp_vectors"].shape[0]):
       tp_vector = self.data["tp_vectors"][i]
@@ -79,14 +80,13 @@ class TestParameterCoverageHandler:
       cov_to_dp[coverpoint]["is_hits"] = np.append(
           cov_to_dp[coverpoint]["is_hits"],
           is_hit, axis=0)
-    hit_rates = []
+
     for cov, dp in cov_to_dp.items():
       dp["hit_rate"] = np.mean(dp["is_hits"])
-      hit_rates.append(dp["hit_rate"])
-    print(f"{sorted(hit_rates)}")
 
     self.cov_to_dp = cov_to_dp
     self.stale = False
+
     return cov_to_dp
 
 
@@ -182,14 +182,14 @@ class BranchVocab:
           "signature_to_index": self.signature_to_index
       }, f)
 
-  def add_branch(self, branch_to_index: str):
-    self.branches.append(branch_to_index)
-    self.signature_to_index[branch_to_index] = len(self.branches) - 1
+  def add_branch(self, branch_signature: str):
+    self.branches.append(branch_signature)
+    self.signature_to_index[branch_signature] = len(self.branches) - 1
 
-  def get_branch_index(self, branch_to_index: str):
-    if branch_to_index not in self.signature_to_index:
-      self.add_branch(branch_to_index)
-    return self.signature_to_index[branch_to_index]
+  def get_branch_index(self, branch_signature: str):
+    if branch_signature not in self.signature_to_index:
+      self.add_branch(branch_signature)
+    return self.signature_to_index[branch_signature]
 
 
 class TestParameterVocab:
@@ -293,6 +293,7 @@ class TestParameterVocab:
       assert key in self.meta, f"Key '{key}' cannot be handled with this vocab"
       if self.meta[key]["type"] in ["int", "bool"]:
         parsed_tp[key] = int(val)
+    parsed_tp["rtl_test"] = test[0]["rtl_test"]
 
     test_parameters_vec = []
     for token in self.tokens:

@@ -8,7 +8,7 @@ description: generated_test_<id>
 iterations: 1
 no_iss: true
 gcc_opts: -mno-strict-align
-gen_test: riscv_ml_test
+gen_test: riscv_rand_instr_test
 no_post_compare: true
 gen_opts:
   num_of_tests:
