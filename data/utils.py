@@ -32,8 +32,8 @@ class TestParameterCoverageHandler:
 
   def load_from_file(self):
     self.data = np.load(self.filepath, allow_pickle=True).item()
-    print(f"Loaded datapoints from dataset: {self.filepath}"
-          f"shape: {[(k, v.shape) for k, v in self.data.items()]}, ")
+    print(f"Loaded datapoints from dataset: {self.filepath} "
+          f"// shape: {[(k, v.shape) for k, v in self.data.items()]}, ")
 
   def save_to_file(self):
     np.save(self.filepath, self.data)

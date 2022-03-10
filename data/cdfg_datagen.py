@@ -42,6 +42,8 @@ class GraphHandler:
     self.adjs = None
     if design_graph_filepath and os.path.exists(design_graph_filepath):
       self.design_graph = load_pkl(design_graph_filepath)
+    if self.dataset_path and os.path.exists(self.dataset_path):
+      self.load_from_file()
 
   def load_or_generate_vocab(self):
     if self.vocab:
@@ -107,9 +109,9 @@ class GraphHandler:
     self.adjs = np.concatenate(adjs, axis=0)
 
     print(f"Done converting design graph to numpy matrices.")
-    print(f"Graphs shape: {self.graphs.shape} "
+    print(f"Graphs shape: {self.graphs.shape} // "
           f"(batch, num_nodes, num_features)")
-    print(f"Adjacency matrix shape: {self.adjs.shape}"
+    print(f"Adjacency matrix shape: {self.adjs.shape} // "
           f"(batch, num_nodes, num_nodes)")
 
     return self.graphs, self.adjs

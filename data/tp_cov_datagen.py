@@ -276,7 +276,11 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
 def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
                      output_dir: str, test_templates_dir: str = ""):
   """Generates the dataset from the given coverage and CDFG directories."""
-  test_dirs = glob(os.path.join(simulated_tests_dir, "*"))
+  test_dirs = []
+  for root, dirs, _ in os.walk(simulated_tests_dir):
+    if "urg_report" in dirs:
+      test_dirs.append(root)
+
   design_graph = load_design_graph(design_graph_dir)
   assert len(test_dirs) > 0, (
       f"No test directories found in '{simulated_tests_dir}'")
