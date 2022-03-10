@@ -48,10 +48,11 @@ class Design2VecBase(Model):
     x = self.gcn_input_dropout(x)
     to_add = x  # Save for residual connection
     for i in range(self.n_gcn_layers):
-      x = tf.ragged.boolean_mask(x, cp_masks)
+      x = self.gcn_layers[i](x)
       x = self.gcn_dropouts[i](x)
     x += to_add  # Residual connection, (batch_size, num_nodes, n_hidden)
-    x = tf.ragged.boolean_mask(x, cp_masks)  # (batch_size, ?, n_hidden)
+    # (batch_size, num_nodes_in_cp, n_hidden)
+    x = tf.ragged.boolean_mask(x, cp_masks)
     # TODO: Add an option to support LSTM later on.
     cov_point_embed = tf.reduce_mean(x, axis=1)  # (batch_size, n_hidden)
 
