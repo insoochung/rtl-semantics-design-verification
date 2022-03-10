@@ -80,10 +80,16 @@ class TestParameterCoverageHandler:
       cov_to_dp[coverpoint]["is_hits"] = np.append(
           cov_to_dp[coverpoint]["is_hits"],
           is_hit, axis=0)
-
+    hit_rates = []
+    num_th = 0
     for cov, dp in cov_to_dp.items():
       dp["hit_rate"] = np.mean(dp["is_hits"])
-
+      hit_rates.append(dp["hit_rate"])
+      if hit_rates[-1] >= 0.05 and hit_rates[-1] <= 0.95:
+        num_th += 1
+    print(sorted(hit_rates))
+    print(len(hit_rates))
+    print(num_th)
     self.cov_to_dp = cov_to_dp
     self.stale = False
 

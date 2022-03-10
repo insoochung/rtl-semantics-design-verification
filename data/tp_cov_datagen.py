@@ -145,6 +145,7 @@ def get_cdfg_subpath(branch_line_nums: List[int], trace_conditions: Tuple[int],
       "conditions")
   subpath_signature = tuple(cdfg_subpath)
   if subpath_signature in covered_subpaths:
+    return None  # TODO: discern different coverpoints with same subpaths
     # If different branch condition has same subpath, assert if they do have
     # identical paths (e.g. solo if clause show same subpath for X and 1).
     _, covered_trace = covered_subpaths[subpath_signature]
@@ -232,6 +233,7 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
         module_coverage[first_ln] = d
 
       ref_d = module_coverage[first_ln]
+
       for trace in traces:
         is_hit = bool(int(trace["cov"]))
         trace_conditions = list(trace["trace"])
@@ -245,6 +247,9 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
           cdfg_subpath = get_cdfg_subpath(branch_line_nums, trace_conditions,
                                           line_number_to_nodes_local,
                                           covered_subpaths)
+          if cdfg_subpath is None:
+            # TODO: discern coverpoints with same paths.
+            continue
           coverpoint_signature = str(
               tuple(node_to_index_global[n] for n in cdfg_subpath))
           coverpoint_idx = branch_vocab.get_branch_index(coverpoint_signature)
