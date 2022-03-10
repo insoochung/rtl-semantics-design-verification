@@ -54,7 +54,10 @@ You can find AST files in `parsed_rtl` within the directory of each design. Use 
 This step will convert AST json files generated from previous step 2 to CDFGs.
 
 ```bash
-python cdfg/constructor.py --parsed_rtl_dir $PARSE_RESULTS_DIR --rtl_dir $RTL_DIR --output_dir $CDFG_DIR
+python cdfg/constructor.py \
+  --parsed_rtl_dir designs/ibex_v1/parsed_rtl/ \
+  --rtl_dir designs/ibex_v1/ibex/rtl \
+  --output_dir $DATA_DIR/generated/cdfg
 ```
 
 #### 4. Matching branches to CDFG subpaths
@@ -62,7 +65,9 @@ python cdfg/constructor.py --parsed_rtl_dir $PARSE_RESULTS_DIR --rtl_dir $RTL_DI
 The HTML coverage report generated from step 1 is converted into YAML files containing coverage information.
 
 ```bash
-python coverage/extract_from_urg.py --in_place --report_dir $URG_REPORT_DIR
+python coverage/extract_from_urg.py \
+  --in_place \
+  --report_dir ~/generated/simulated
 ```
 
 #### 5. Generate training and test data
@@ -71,7 +76,13 @@ This final step creates data in format required for design2vec training.
 
 ```bash
 # Vectorize CDFG to feed to GCN
-python data/cdfg_datagen.py --design_graph_filepath $CDFG_DIR/design_graph.pkl --output_dir $NN_DATA_DIR/cdfgs
+python data/cdfg_datagen.py \
+  --design_graph_filepath $DATA_DIR/generated/cdfgs/design_graph.pkl \
+  --output_dir $DATA_DIR/generated/d2v_data/graph
+
 # Vectorize test parameters and coverage data to feed to NN trainling loop
-python data/tp_cov_datagen.py --design_graph_dir $CDFG_DIR --test_templates_dir $TEST_TEMPLATES_DIR --output_dir $NN_DATA_DIR/tp_coverage
+python data/tp_cov_datagen.py \
+  --design_graph_dir $DATA_DIR/generated/cdfgs/ \
+  --test_templates_dir designs/ibex_v1/test_templates/ \
+  --output_dir -od $DATA_DIR/generated/d2v_data/tp_cov
 ```

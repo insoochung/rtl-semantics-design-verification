@@ -49,7 +49,10 @@ ls out/rtl_sim/urgReport
 2. Generate tests.
 
 ```bash
-python generate_tests.py --template_dir ./test_templates/ --output_dir $GENERATED_TESTS_DIR --num_tests $NUM_TESTS
+python generate_tests.py \
+  --template_dir test_templates/ \
+  --output_dir $DATA_DIR/generated/tests \
+  --num_tests 4000
 # If you want to run a generated test
 # 1. Replace 'ibex/dv/uvm/core_ibex/riscv_dv_extension/testlist.yaml' with the generated test.
 # 2. Follow step 3 in `Simulation` section.
@@ -58,7 +61,10 @@ python generate_tests.py --template_dir ./test_templates/ --output_dir $GENERATE
 3. Run tests
 
 ```bash
-python run_tests.py --tests_dir $GENERATED_TESTS_DIR --output_dir $SIMULATION_RESULTS_DIR --verification_dir ibex/dv/uvm/core_ibex
+python run_tests.py \
+  --tests_dir $DATA_DIR/generated/tests \
+  --output_dir $DATA_DIR/generated/simulated \
+  --verification_dir ibex/dv/uvm/core_ibex
 ```
 
 ## Next
