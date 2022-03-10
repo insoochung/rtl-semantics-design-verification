@@ -26,7 +26,7 @@ To train a design2vec framework, we need datapoints in form of:
   "input":
     {
       "test_params": "param1=val1,param2=val2,param3=val3,...",
-      "branch": "{module_name}/{line_num}/{trace_num}"
+      "branch": "branch_number"
     },
   "result(is_hit)": "0 or 1"
 }
@@ -47,8 +47,7 @@ In order to generate such datapoints, we need to:
 
 #### 2. Converting RTL to AST
 
-This too is explained in each `README.md`' of designs.
-- [ibex_v1](designs/ibex_v1/)
+You can find AST files in `parsed_rtl` within the directory of each design. Use that, or refer to [this document](docs/verible.md) to generate your own.
 
 #### 3. Converting AST to CDFG
 
