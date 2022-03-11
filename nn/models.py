@@ -1,3 +1,4 @@
+from numpy import dtype
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Dense, Dropout
@@ -5,50 +6,68 @@ from spektral.layers import GCNConv
 
 
 class Design2VecBase(Model):
-  def __init__(self, n_hidden, n_labels=1, n_gcn_layers=4, n_mlp_hidden=256, dropout=0.1):
+  def __init__(self, graphs, n_hidden, n_labels=1, n_gcn_layers=4,
+               n_mlp_hidden=256, dropout=0.1):
     # GCN activation="relu", output_activation="softmax"
     super().__init__()
+    self.graphs = graphs
     self.n_hidden = n_hidden
     self.n_labels = n_labels
     self.n_gcn_layers = n_gcn_layers
     self.n_mlp_hidden = n_mlp_hidden
     self.dropout = dropout
 
-    self.gcn_input_layer = Dense(n_hidden, activation="relu")
+    self.gcn_input_layer = Dense(n_hidden, activation="relu", dtype=tf.float32)
     self.gcn_layers = []
     self.gcn_dropouts = []
     for i in range(n_gcn_layers - 1):
       self.gcn_layers.append(
-          GCNConv(n_hidden, activation="relu"))
-    self.gcn_layers.append(GCNConv(n_hidden, activation="softmax"))
+          GCNConv(n_hidden, activation="relu", dtype=tf.float32))
+    self.gcn_layers.append(
+        GCNConv(n_hidden, activation="softmax", dtype=tf.float32))
     self.gcn_input_dropout = Dropout(dropout)
     for i in range(n_gcn_layers):
       self.gcn_dropouts.append(Dropout(dropout))
 
-    self.tp_mlp_1 = Dense(n_mlp_hidden, activation="relu")
-    self.tp_mlp_2 = Dense(n_mlp_hidden, activation="softmax")
+    self.tp_mlp_1 = Dense(n_mlp_hidden, activation="relu", dtype=tf.float32)
+    self.tp_mlp_2 = Dense(n_mlp_hidden, activation="softmax", dtype=tf.float32)
     self.tp_input_dropout = Dropout(dropout)
     self.tp_mlp_1_dropout = Dropout(dropout)
     self.tp_mlp_2_dropout = Dropout(dropout)
 
-    self.final_mlp_1 = Dense(n_mlp_hidden, activation="relu")
-    self.final_mlp_2 = Dense(n_labels, activation="sigmoid")
+    self.final_mlp_1 = Dense(n_mlp_hidden, activation="relu", dtype=tf.float32)
+    self.final_mlp_2 = Dense(n_labels, activation="sigmoid", dtype=tf.float32)
     self.final_input_dropout = Dropout(dropout)
     self.final_mlp_1_dropout = Dropout(dropout)
 
+  def get_graphs(self, graph_indices):
+    graphs = self.graphs[graph_indices.numpy().flatten()]
+    graph_xs = []
+    graph_as = []
+    for graph in graphs:
+      graph_xs.append(graph.x)
+      graph_as.append(graph.a)
+    return tf.stack(graph_xs), tf.stack(graph_as)
+
   def call(self, inputs):
     tps = inputs["test_parameters"]  # (batch_size, n_mlp_hidden)
-    graphs = inputs["graph"]  # (batch_size, num_nodes, num_features)
+    # (batch_size, num_nodes, num_features)
+    # print(inputs["graph_indices"])
+    # graph_a = inputs["graph_a"]
+    # graph_x = inputs["graph_x"]
+    graph_indices = inputs["graph"]
+    # TODO: see if runtime graph fetching harms performance
+    graph_xs, graph_as = self.get_graphs(graph_indices)
     cp_masks = inputs["coverpoint_mask"]  # (batch_size, num_nodes)
 
     # GCN
     # input layer -> n - 1 GCN layers (relu) -> final GCN layer (softmax)
     # (batch_size, num_nodes, n_hidden)
-    x = self.gcn_input_layer(graphs)
+    x = self.gcn_input_layer(graph_xs)
     x = self.gcn_input_dropout(x)
     to_add = x  # Save for residual connection
     for i in range(self.n_gcn_layers):
-      x = self.gcn_layers[i](x)
+      x = self.gcn_layers[i]((x, graph_as))
       x = self.gcn_dropouts[i](x)
     x += to_add  # Residual connection, (batch_size, num_nodes, n_hidden)
     # (batch_size, num_nodes_in_cp, n_hidden)
@@ -65,7 +84,7 @@ class Design2VecBase(Model):
     tp_embed = self.tp_mlp_2_dropout(x)  # (batch_size, n_mlp_hidden)
 
     # Concatenate, x: (batch_size, n_hidden + n_mlp_hidden)
-    x = tf.concat(cov_point_embed, tp_embed, axis=1)
+    x = tf.concat((cov_point_embed, tp_embed), axis=1)
     x = self.final_input_dropout(x)
     x = self.final_mlp_1(x)  # x: (batch_size, n_mlp_hidden)
     x = self.final_mlp_1_dropout(x)

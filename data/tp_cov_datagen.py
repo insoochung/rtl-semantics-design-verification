@@ -293,6 +293,7 @@ def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
   covered_tests = utils["covered_tests"]
   vocab = utils["vocab"]
   bvocab = utils["bvocab"]
+  bvocab.set_module_index_to_node_offset(design_graph.module_start_index)
   tp_cov_handler = utils["tp_cov_handler"]
   for test_dir in sorted(test_dirs):
     if not os.path.isdir(test_dir):

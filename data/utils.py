@@ -2,6 +2,7 @@ import os
 import pickle
 
 from glob import glob
+from typing import List
 
 import yaml
 import numpy as np
@@ -87,9 +88,7 @@ class TestParameterCoverageHandler:
       hit_rates.append(dp["hit_rate"])
       if hit_rates[-1] >= 0.05 and hit_rates[-1] <= 0.95:
         num_th += 1
-    print(sorted(hit_rates))
-    print(len(hit_rates))
-    print(num_th)
+
     self.cov_to_dp = cov_to_dp
     self.stale = False
 
@@ -171,6 +170,7 @@ class BranchVocab:
   def __init__(self, vocab_filepath: str = ""):
     self.vocab_filepath = vocab_filepath
     self.branches = []
+    self.module_index_to_node_offset = []
     self.signature_to_index = {}
     if vocab_filepath and os.path.exists(vocab_filepath):
       self.load_from_file()
@@ -179,13 +179,15 @@ class BranchVocab:
     vocab = load_yaml(self.vocab_filepath)
     self.branches = vocab["branches"]  # List of branch signatures
     self.signature_to_index = vocab["signature_to_index"]
+    self.module_index_to_node_offset = vocab["module_index_to_node_offset"]
     print(f"Loaded branch vocab from {self.vocab_filepath}")
 
   def save_to_file(self):
     with open(self.vocab_filepath, "w") as f:
       yaml.dump({
           "branches": self.branches,
-          "signature_to_index": self.signature_to_index
+          "signature_to_index": self.signature_to_index,
+          "module_index_to_node_offset": self.module_index_to_node_offset
       }, f)
 
   def add_branch(self, branch_signature: str):
@@ -196,6 +198,41 @@ class BranchVocab:
     if branch_signature not in self.signature_to_index:
       self.add_branch(branch_signature)
     return self.signature_to_index[branch_signature]
+
+  def set_module_index_to_node_offset(self, module_start_index: List[int]):
+    self.module_index_to_node_offset = module_start_index
+
+  def get_branch_signature_tuple(self, branch_index: int):
+    sig = self.branches[branch_index]
+    if isinstance(sig, str):
+      sig = eval(sig)
+    assert isinstance(sig, tuple)
+    return sig
+
+  def get_module_index(self, branch_index: int):
+    branch_signature = self.get_branch_signature_tuple(branch_index)
+    first_nidx = branch_signature[0]
+    offset_range = self.module_index_to_node_offset + [9e9]
+    for module_idx, n_offset in enumerate(offset_range):
+      if n_offset <= first_nidx < offset_range[module_idx + 1]:
+        return module_idx
+    assert False, f"{first_nidx} not found within {offset_range}"
+
+  def get_mask(self, branch_index: int, module_index: int = None,
+              mask_length: int = None, return_module_index: bool = False):
+    if not module_index:
+      module_index = self.get_module_index(branch_index)
+    branch_signature = self.get_branch_signature_tuple(branch_index)
+    node_offset = self.module_index_to_node_offset[module_index]
+    node_indices = [i - node_offset for i in branch_signature]
+    if not mask_length:
+      mask_length = node_indices[-1] + 1
+    mask = np.zeros(mask_length, dtype=np.float32)
+    mask[node_indices] = 1.
+    if return_module_index:
+      return {"mask": mask, "module_index": module_index}
+    return mask
+
 
 
 class TestParameterVocab:
