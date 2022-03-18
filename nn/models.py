@@ -51,12 +51,9 @@ class Design2VecBase(Model):
 
   def call(self, inputs):
     tps = inputs["test_parameters"]  # (batch_size, n_mlp_hidden)
-    # (batch_size, num_nodes, num_features)
-    # print(inputs["graph_indices"])
-    # graph_a = inputs["graph_a"]
-    # graph_x = inputs["graph_x"]
     graph_indices = inputs["graph"]
-    # TODO: see if runtime graph fetching harms performance
+    # graph_xs (batch_size, num_nodes, num_features)
+    # graph_as: (batch_size, num_nodes, num_nodes)
     graph_xs, graph_as = self.get_graphs(graph_indices)
     cp_masks = inputs["coverpoint_mask"]  # (batch_size, num_nodes)
 
