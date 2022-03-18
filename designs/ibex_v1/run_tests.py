@@ -56,10 +56,12 @@ def run_test(test_path, output_dir, verification_dir):
         print(f"- Test and coverage reports stored in '{test_output_dir}'\n")
       except subprocess.CalledProcessError as e:
         print(f"ERROR: {e}")
-        reserve_dir = os.path.join(test_output_dir, "full_sim_dir")
-        shutil.copytree(temp_dir, reserve_dir)
         print(f"Simulation FAILED for '{test_path}'")
-        print(f"- Find failed simulation output in '{reserve_dir}'\n")
+        # INFO: use below to backup failed simulations,
+        #       for now, commented out due to disk quota issues.
+        # reserve_dir = os.path.join(test_output_dir, "full_sim_dir")
+        # shutil.copytree(temp_dir, reserve_dir)
+        # print(f"- Find failed simulation output in '{reserve_dir}'\n")
 
   # Keep a backup of test in the output directory
   shutil.copy(test_path, test_output_dir)
