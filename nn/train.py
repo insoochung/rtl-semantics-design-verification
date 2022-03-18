@@ -34,21 +34,24 @@ def split_indices(indices, split_ratio):
   return train, valid, test
 
 
-def convert_to_tf_dataset(dataset):
+def convert_to_tf_dataset(dataset, label_key="is_hits"):
   """Convert the dict of numpy dataset to tf.data.Dataset."""
   def ds_gen(dataset):
     for i in range(dataset["coverpoint"].shape[0]):
-      yield {k: dataset[k][i] for k in dataset.keys()}
+      yield ({k: dataset[k][i] for k in dataset.keys()},  # inputs
+             dataset[label_key][i])  # label
 
-  output_signature = {}
+  signature = {}
   for key in dataset:
     nd = len(dataset[key].shape)
-    output_signature[key] = tf.TensorSpec(
+    signature[key] = tf.TensorSpec(
         shape=dataset[key].shape[1:] if nd > 1 else (),
         dtype=dataset[key].dtype)
-
+    if key == label_key:
+      label_signature = signature[key]
+  signature = (signature, label_signature)  # inputs, label
   return tf.data.Dataset.from_generator(
-      lambda: ds_gen(dataset), output_signature=output_signature)
+      lambda: ds_gen(dataset), output_signature=signature)
 
 
 def _finalize_dataset(cp_indices, dataset, cp_idx_to_midx, cp_idx_to_mask,
@@ -180,17 +183,17 @@ def train(graph_dir, tf_data_dir, model_dir, tp_cov_dir=None,
     save_dataset(dataset, tf_data_dir)
 
   dataset = load_dataset(tf_data_dir)
-  for k, ds in dataset.items():
+  for k, ds in dataset.items():  # Add batch size to dataset
     dataset[k] = ds.batch(batch_size)
-  if shuffle_train:
-    dataset["train"] = dataset["train"].shuffle(buffer_size=512)
+  if shuffle_train:  # Add shuffle to dataset
+    dataset["train"] = dataset["train"].shuffle(buffer_size=1024)
 
   model = get_d2v_model(graph_dir, n_hidden,
                         n_gcn_layers, n_mlp_hidden, dropout)
 
-  for batch in dataset["train"]:
-    y = model(batch)
-    assert 0, y
+  model.compile(loss="binary_crossentropy", metrics=["binary_accuracy"],
+                optimizer="adam", run_eagerly=True)
+  model.fit(dataset["train"], epochs=10, validation_data=dataset["valid"])
 
 
 if __name__ == "__main__":
@@ -226,7 +229,7 @@ if __name__ == "__main__":
                       help="Dropout rate.")
   parser.add_argument("--learning_rate", type=float, default=0.001,
                       help="Learning rate.")
-  parser.add_argument("--batch_size", type=int, default=16,
+  parser.add_argument("--batch_size", type=int, default=64,
                       help="Batch size.")
   parser.add_argument("--shuffle_train", action="store_true", default=False,
                       help="Shuffle TF dataset")
