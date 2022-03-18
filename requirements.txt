@@ -6,3 +6,4 @@ beautifulsoup4
 torch
 transformers
 spektral
+scipy

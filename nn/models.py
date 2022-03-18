@@ -8,9 +8,16 @@ from spektral.layers import GCNConv
 class Design2VecBase(Model):
   def __init__(self, graphs, n_hidden, n_labels=1, n_gcn_layers=4,
                n_mlp_hidden=256, dropout=0.1):
-    # GCN activation="relu", output_activation="softmax"
     super().__init__()
     self.graphs = graphs
+    self.graph_xs = []
+    self.graph_as = []
+    for graph in self.graphs:
+      self.graph_xs.append(graph.x)
+      self.graph_as.append(graph.a)
+    self.graph_xs = tf.stack(self.graph_xs)
+    self.graph_as = tf.stack(self.graph_as)
+
     self.n_hidden = n_hidden
     self.n_labels = n_labels
     self.n_gcn_layers = n_gcn_layers
@@ -40,21 +47,14 @@ class Design2VecBase(Model):
     self.final_input_dropout = Dropout(dropout)
     self.final_mlp_1_dropout = Dropout(dropout)
 
-  def get_graphs(self, graph_indices):
-    graphs = self.graphs[graph_indices.numpy().flatten()]
-    graph_xs = []
-    graph_as = []
-    for graph in graphs:
-      graph_xs.append(graph.x)
-      graph_as.append(graph.a)
-    return tf.stack(graph_xs), tf.stack(graph_as)
 
   def call(self, inputs):
     tps = inputs["test_parameters"]  # (batch_size, n_mlp_hidden)
     graph_indices = inputs["graph"]
     # graph_xs (batch_size, num_nodes, num_features)
     # graph_as: (batch_size, num_nodes, num_nodes)
-    graph_xs, graph_as = self.get_graphs(graph_indices)
+    graph_xs = tf.gather_nd(self.graph_xs, graph_indices)
+    graph_as = tf.gather_nd(self.graph_as, graph_indices)
     cp_masks = inputs["coverpoint_mask"]  # (batch_size, num_nodes)
 
     # GCN

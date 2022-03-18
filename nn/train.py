@@ -192,7 +192,7 @@ def train(graph_dir, tf_data_dir, model_dir, tp_cov_dir=None,
                         n_gcn_layers, n_mlp_hidden, dropout)
 
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy"],
-                optimizer="adam", run_eagerly=True)
+                optimizer="adam")
   model.fit(dataset["train"], epochs=10, validation_data=dataset["valid"])
 
 
