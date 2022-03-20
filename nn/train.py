@@ -3,6 +3,8 @@ import sys
 import copy
 import argparse
 import pickle
+import glob
+import json
 
 import numpy as np
 import tensorflow as tf
@@ -31,7 +33,29 @@ def split_indices(indices, split_ratio):
   train = indices[:train_valid_boundary]
   valid = indices[train_valid_boundary:valid_test_boundary]
   test = indices[valid_test_boundary:]
+  # Ensure no overlap between train, valid and test
+  for pair in ((train, valid), (valid, test), (test, train)):
+    for idx in pair[0]:
+      assert idx not in pair[1]
   return train, valid, test
+
+
+def split_dataset(dataset, split_ratio):
+  train, valid, test = split_indices(list(dataset.keys()), split_ratio)
+  train_ds, valid_ds, test_ds = None, None, None
+  if train:
+    train_ds = tf.data.experimental.sample_from_datasets([
+      dataset[i] for i in train])
+  if valid:
+    valid_ds = tf.data.experimental.sample_from_datasets([
+      dataset[i] for i in valid])
+  if test:
+    test_ds = tf.data.experimental.sample_from_datasets([
+      dataset[i] for i in test])
+  splits = {"train": train, "valid": valid, "test": test}
+  dataset = {"train": train_ds, "valid": valid_ds, "test": test_ds}
+  print(f"Dataset split into: {splits}")
+  return dataset, splits
 
 
 def convert_to_tf_dataset(dataset, label_key="is_hits"):
@@ -54,21 +78,19 @@ def convert_to_tf_dataset(dataset, label_key="is_hits"):
       lambda: ds_gen(dataset), output_signature=signature)
 
 
-def _finalize_dataset(cp_indices, dataset, cp_idx_to_midx, cp_idx_to_mask,
-                      type="train"):
+def combine_data_per_cp(cp_idx, dataset, cp_idx_to_midx, cp_idx_to_mask):
   tp_vectors = []
   is_hits = []
   masks = []
   graphs = []
   coverpoints = []
-  for idx in cp_indices:
-    for row in range(dataset[idx]["tp_vectors"].shape[0]):
-      gidx = cp_idx_to_midx[idx]
-      tp_vectors.append(dataset[idx]["tp_vectors"][row].astype(np.float32))
-      is_hits.append(dataset[idx]["is_hits"][row].astype(np.float32))
-      masks.append(cp_idx_to_mask[idx].astype(np.bool))
-      graphs.append(gidx)
-      coverpoints.append(idx)
+  for row in range(dataset[cp_idx]["tp_vectors"].shape[0]):
+    gidx = cp_idx_to_midx[cp_idx]
+    tp_vectors.append(dataset[cp_idx]["tp_vectors"][row].astype(np.float32))
+    is_hits.append(dataset[cp_idx]["is_hits"][row].astype(np.float32))
+    masks.append(cp_idx_to_mask[cp_idx].astype(np.bool))
+    graphs.append(gidx)
+    coverpoints.append(cp_idx)
   tp_vectors = np.vstack(tp_vectors)
   is_hits = np.vstack(is_hits)
   masks = np.vstack(masks)
@@ -83,15 +105,13 @@ def _finalize_dataset(cp_indices, dataset, cp_idx_to_midx, cp_idx_to_mask,
       "graph": graphs[p],
       "coverpoint": coverpoints[p],
   }
-  print(f"Dataset '{type}' shapes: ")
-  for k, v in ret.items():
-    print(f"- {k}: {v.shape}")
+  print(f"Dataset for coverpoint '{cp_idx}' shapes: "
+        f"{[f'{k}: {v.shape}' for k, v in ret.items()]}")
   return ret
 
 
-def finalize_dataset(graph_dir, tp_cov_dir,
-                     hit_lower_bound=0.1, hit_upper_bound=0.9,
-                     split_ratio=(0.7, 0.15, 0.15)):
+def combine_data(graph_dir, tp_cov_dir,
+                 hit_lower_bound=0.1, hit_upper_bound=0.9):
   print("Aggregating sporadic information to finalize dataset...")
   # Load dataset
   graph_handler = GraphHandler(output_dir=graph_dir)
@@ -126,28 +146,24 @@ def finalize_dataset(graph_dir, tp_cov_dir,
 
   # Split dataset into train, valid and test
   cp_indices = list(cov_dataset.keys())
-  cp_splits = {}
-  cp_splits["train"], cp_splits["valid"], cp_splits["test"] = \
-      split_indices(cp_indices, split_ratio)
-
   dataset = {}
-  for key in (["train", "valid", "test"]):
-    dataset[key] = _finalize_dataset(cp_splits[key], cov_dataset,
-                                     cp_idx_to_midx, cp_idx_to_mask,
-                                     type=key)
-    dataset[key] = convert_to_tf_dataset(dataset[key])
+  for cp_index in cp_indices:
+    dataset[cp_index] = combine_data_per_cp(cp_index, cov_dataset,
+                                            cp_idx_to_midx, cp_idx_to_mask)
+    dataset[cp_index] = convert_to_tf_dataset(dataset[cp_index])
   print("Dataset finalized.")
   return dataset
 
 
 def load_dataset(tf_data_dir):
   print(f"Loading data from {tf_data_dir}...")
+  with open(os.path.join(tf_data_dir, "shared.element_spec"), "rb") as f:
+    es = pickle.load(f)
   dataset = {}
-  for k in ["train", "valid", "test"]:
-    with open(os.path.join(tf_data_dir, f"{k}.element_spec"), "rb") as f:
-      es = pickle.load(f)
-    dataset[k] = tf.data.experimental.load(
-        os.path.join(tf_data_dir, f"{k}.tfrecord"), es, compression="GZIP")
+  for tfrecord_path in glob.glob(os.path.join(tf_data_dir, "*.tfrecord")):
+    cp_num = int(os.path.basename(tfrecord_path).split(".")[1])
+    dataset[cp_num] = tf.data.experimental.load(
+        tfrecord_path, es, compression="GZIP")
   print("Data loaded.")
   return dataset
 
@@ -157,9 +173,10 @@ def save_dataset(dataset, tf_data_dir):
   os.makedirs(tf_data_dir, exist_ok=True)
   for k, ds in dataset.items():
     tf.data.experimental.save(
-        ds, os.path.join(tf_data_dir, f"{k}.tfrecord"), compression="GZIP")
-    with open(os.path.join(tf_data_dir, f"{k}.element_spec"), "wb") as f:
-      pickle.dump(ds.element_spec, f)  # Redundant for TF>=2.5
+        ds, os.path.join(tf_data_dir, f"coverpoint.{k:05d}.tfrecord"),
+        compression="GZIP")
+  with open(os.path.join(tf_data_dir, "shared.element_spec"), "wb") as f:
+    pickle.dump(ds.element_spec, f)  # Redundant for TF>=2.5
   print("Data saved.")
 
 
@@ -171,29 +188,86 @@ def get_d2v_model(graph_dir, n_hidden, n_gcn_layers, n_mlp_hidden, dropout):
   return model
 
 
-def train(graph_dir, tf_data_dir, model_dir, tp_cov_dir=None,
-          n_hidden=32, n_gcn_layers=4, n_mlp_hidden=32, dropout=0.1,
-          learning_rate=0.001, batch_size=32, split_ratio=(0.7, 0.15, 0.15),
-          hit_lower_bound=0.1, hit_upper_bound=0.9, generate_data=False,
-          shuffle_train=True):
-
-  if generate_data:
-    dataset = finalize_dataset(graph_dir, tp_cov_dir, hit_lower_bound,
-                               hit_upper_bound, split_ratio)
-    save_dataset(dataset, tf_data_dir)
-
-  dataset = load_dataset(tf_data_dir)
-  for k, ds in dataset.items():  # Add batch size to dataset
-    dataset[k] = ds.batch(batch_size)
-  if shuffle_train:  # Add shuffle to dataset
-    dataset["train"] = dataset["train"].shuffle(buffer_size=1024)
-
-  model = get_d2v_model(graph_dir, n_hidden,
-                        n_gcn_layers, n_mlp_hidden, dropout)
-
+def train(model, dataset, ckpt_dir, ckpt_name="best.ckpt",
+          epochs=10, learning_rate=None):
+  if learning_rate:
+    print(f"For now, learing rate (given: {learning_rate}) is ignored, "
+          f"and the ReduceLROnPlateau scheme is used.")
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy"],
                 optimizer="adam")
-  model.fit(dataset["train"], epochs=10, validation_data=dataset["valid"])
+  # Setup callbacks
+  ckpt_path = os.path.join(ckpt_dir, ckpt_name)
+  callbacks = [tf.keras.callbacks.TensorBoard(os.path.join(ckpt_dir, "logs"))]
+  if dataset["valid"]:
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss",
+                                                    patience=3, verbose=True)
+    model_ckpt = tf.keras.callbacks.ModelCheckpoint(
+        ckpt_path, save_format="tf", monitor="val_loss", save_best_only=True,
+        verbose=True)
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor="val_loss", patience=5, verbose=True)
+    callbacks += [reduce_lr, model_ckpt, early_stopping]
+  else:
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+        ckpt_path, save_format="tf", verbose=True))
+  return model.fit(dataset["train"], epochs=epochs,
+                   validation_data=dataset["valid"], callbacks=callbacks)
+
+
+def evaluate(model, test_dataset, ckpt_dir, ckpt_name="best.ckpt"):
+  model.load_weights(os.path.join(ckpt_dir, ckpt_name))
+  model.compile(loss="binary_crossentropy", metrics=["binary_accuracy"])
+  return model.evaluate(test_dataset, return_dict=True)
+
+
+def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
+        tp_cov_dir=None, n_hidden=32, n_gcn_layers=4, n_mlp_hidden=32,
+        dropout=0.1, learning_rate=None, batch_size=32, epochs=50,
+        split_ratio=(0.7, 0.15, 0.15), generate_data=False,
+        hit_lower_bound=0.1, hit_upper_bound=0.9):
+  if generate_data:
+    dataset = combine_data(graph_dir, tp_cov_dir,
+                           hit_lower_bound, hit_upper_bound)
+    save_dataset(dataset, tf_data_dir)
+  model_config = {"graph_dir": graph_dir, "n_hidden": n_hidden,
+                  "n_gcn_layers": n_gcn_layers, "n_mlp_hidden": n_mlp_hidden,
+                  "dropout": dropout}
+
+  print(f"Model config: {model_config}")
+  # Load dataset
+  dataset = load_dataset(tf_data_dir)
+  # Split dataset
+  dataset, splits = split_dataset(dataset, split_ratio)
+  for k, ds in dataset.items():
+    if ds: dataset[k] = ds.batch(batch_size)
+
+  # Train model
+  model = get_d2v_model(**model_config)
+  history = train(model, dataset, ckpt_dir, ckpt_name, epochs, learning_rate)
+  meta = {"splits": splits, "model_config": model_config,
+          "train": {"history": history.history, "params": history.params}}
+
+  # Evaluate model
+  if dataset["test"]:
+    test_model = get_d2v_model(**model_config)
+    result = evaluate(test_model, dataset["test"], ckpt_dir, ckpt_name)
+    print(f"Test result: {result}")
+    meta["result"] = result
+
+  return meta
+
+
+def run_with_seed(seed, *args, append_seed_to_ckpt_dir=False, **kwargs):
+  np.random.seed(seed)
+  tf.random.set_seed(seed)
+  if append_seed_to_ckpt_dir:
+    seed_str = f"seed-{seed}"
+    kwargs["ckpt_dir"] = os.path.join(kwargs["ckpt_dir"], seed_str)
+  m = run(*args, **kwargs)
+  m["seed"] = seed
+  print(f"Train info: {m}")
+  with open(os.path.join(kwargs["ckpt_dir"], "meta.json"), "w") as f:
+    f.write(json.dumps(m, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
@@ -212,13 +286,15 @@ if __name__ == "__main__":
                       help="Lower bound of the hit rate.")
   parser.add_argument("--hit_upper_bound", type=float, default=0.9,
                       help="Upper bound of the hit rate.")
-  parser.add_argument("--split_ratio", type=str, default="0.7,0.15,0.15",
+  parser.add_argument("--split_ratio", type=str, default="0.5,0.25,0.25",
                       help="Ratio of the train, valid and test split in "
                            "comma-separated string format.")
 
   # NN related flags
-  parser.add_argument("-md", "--model_dir", type=str, required=True,
-                      help="Directory of the model.")
+  parser.add_argument("-cd", "--ckpt_dir", type=str,
+                      help="Directory to save the checkpoints.")
+  parser.add_argument("--ckpt_name", type=str, default="model.ckpt",
+                      help="Name of the checkpoint.")
   parser.add_argument("--n_hidden", type=int, default=32,
                       help="Number of hidden units.")
   parser.add_argument("--n_gcn_layers", type=int, default=4,
@@ -229,10 +305,14 @@ if __name__ == "__main__":
                       help="Dropout rate.")
   parser.add_argument("--learning_rate", type=float, default=0.001,
                       help="Learning rate.")
-  parser.add_argument("--batch_size", type=int, default=64,
-                      help="Batch size.")
-  parser.add_argument("--shuffle_train", action="store_true", default=False,
-                      help="Shuffle TF dataset")
+  parser.add_argument("--batch_size", type=int, default=64, help="Batch size.")
+  parser.add_argument("--epochs", type=int, default=50,
+                      help="Number of epochs to train.")
+  parser.add_argument("--seed", type=int, required=False, default=0,
+                      help="Seed to set.")
+  parser.add_argument("--append_seed_to_ckpt_dir", action="store_true",
+                      default=False, help="Append the seed path/dir vars.")
 
   args = parser.parse_args()
-  train(**vars(args))
+  print(f"Received arguments: {args}")
+  run_with_seed(**vars(args))

@@ -5,6 +5,7 @@ from glob import glob
 from typing import List
 
 import yaml
+import tqdm
 import numpy as np
 
 
@@ -63,11 +64,12 @@ class TestParameterCoverageHandler:
           f"coverpoints {self.data['coverpoints'].shape}")
 
   def arrange_dataset_by_coverpoint(self):
+    print("Arranging dataset by coverpoint...")
     if not self.stale and len(self.cov_to_dp) > 0:
       return self.cov_to_dp
 
     cov_to_dp = {}
-    for i in range(self.data["tp_vectors"].shape[0]):
+    for i in tqdm.tqdm(range(self.data["tp_vectors"].shape[0])):
       tp_vector = self.data["tp_vectors"][i]
       is_hit = self.data["is_hits"][i]
       coverpoint = int(self.data["coverpoints"][i][0])
@@ -91,7 +93,7 @@ class TestParameterCoverageHandler:
 
     self.cov_to_dp = cov_to_dp
     self.stale = False
-
+    print("Dataset arranged by coverpoint.")
     return cov_to_dp
 
 
@@ -219,7 +221,7 @@ class BranchVocab:
     assert False, f"{first_nidx} not found within {offset_range}"
 
   def get_mask(self, branch_index: int, module_index: int = None,
-              mask_length: int = None, return_module_index: bool = False):
+               mask_length: int = None, return_module_index: bool = False):
     if not module_index:
       module_index = self.get_module_index(branch_index)
     branch_signature = self.get_branch_signature_tuple(branch_index)
@@ -232,7 +234,6 @@ class BranchVocab:
     if return_module_index:
       return {"mask": mask, "module_index": module_index}
     return mask
-
 
 
 class TestParameterVocab:
