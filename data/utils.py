@@ -1,22 +1,47 @@
 import os
+import pickle
+
+from glob import glob
+from typing import List
+
 import yaml
+import tqdm
 import numpy as np
 
 
-class DatasetSaver:
+def load_yaml(filepath: str):
+  """Loads a YAML file from the given filepath."""
+  with open(filepath, "r") as f:
+    ret = yaml.load(f, Loader=yaml.FullLoader)
+  return ret
+
+
+def load_pkl(pkl_file: str):
+  """Loads the RTL file from the given pickle file."""
+  with open(pkl_file, "rb") as f:
+    ret = pickle.load(f)
+  return ret
+
+
+class TestParameterCoverageHandler:
   def __init__(self, filepath: str = ""):
     self.filepath = filepath
     self.data = {}
+    self.cov_to_dp = {}
+    self.stale = False
     if filepath and os.path.exists(filepath):
       self.load_from_file()
 
   def load_from_file(self):
-    self.data = np.load(self.filepath)
+    self.data = np.load(self.filepath, allow_pickle=True).item()
+    print(f"Loaded datapoints from dataset: {self.filepath} "
+          f"// shape: {[(k, v.shape) for k, v in self.data.items()]}, ")
 
   def save_to_file(self):
     np.save(self.filepath, self.data)
 
   def add(self, tp_vectors, is_hits, coverpoints):
+    self.stale = True
     if "tp_vectors" not in self.data:
       self.data["tp_vectors"] = tp_vectors
     else:
@@ -38,52 +63,194 @@ class DatasetSaver:
           f"is_hits {self.data['is_hits'].shape}, "
           f"coverpoints {self.data['coverpoints'].shape}")
 
+  def arrange_dataset_by_coverpoint(self):
+    print("Arranging dataset by coverpoint...")
+    if not self.stale and len(self.cov_to_dp) > 0:
+      return self.cov_to_dp
+
+    cov_to_dp = {}
+    for i in tqdm.tqdm(range(self.data["tp_vectors"].shape[0])):
+      tp_vector = self.data["tp_vectors"][i]
+      is_hit = self.data["is_hits"][i]
+      coverpoint = int(self.data["coverpoints"][i][0])
+      if coverpoint not in cov_to_dp:
+        cov_to_dp[coverpoint] = {
+            "tp_vectors": np.zeros(shape=(0, tp_vector.shape[-1])),
+            "is_hits": np.zeros(shape=(0))}
+      cov_to_dp[coverpoint]["tp_vectors"] = np.append(
+          cov_to_dp[coverpoint]["tp_vectors"],
+          tp_vector.reshape(1, -1), axis=0)
+      cov_to_dp[coverpoint]["is_hits"] = np.append(
+          cov_to_dp[coverpoint]["is_hits"],
+          is_hit, axis=0)
+    hit_rates = []
+    num_th = 0
+    for cov, dp in cov_to_dp.items():
+      dp["hit_rate"] = np.mean(dp["is_hits"])
+      hit_rates.append(dp["hit_rate"])
+      if hit_rates[-1] >= 0.05 and hit_rates[-1] <= 0.95:
+        num_th += 1
+
+    self.cov_to_dp = cov_to_dp
+    self.stale = False
+    print("Dataset arranged by coverpoint.")
+    return cov_to_dp
+
+
+class NodeVocab:
+  def __init__(self, vocab_filepath: str = ""):
+    self.vocab_filepath = vocab_filepath
+    self.vocab = {"nodes": [], "meta": {}}
+    if vocab_filepath and os.path.exists(vocab_filepath):
+      self.load_from_file()
+
+  def load_from_file(self):
+    self.vocab = load_yaml(self.vocab_filepath)
+    print(f"Loaded vocab from {self.vocab_filepath}")
+
+  def save_to_file(self):
+    with open(self.vocab_filepath, "w") as f:
+      yaml.dump(self.vocab, f)
+    print(f"Saved vocab to {self.vocab_filepath}")
+
+  def is_loaded(self):
+    return len(self.vocab["nodes"]) > 0
+
+  def load_s2v_model(self, model_name):
+    from transformers import AutoModel, AutoTokenizer
+    print("Loading S2V model...")
+    model = AutoModel.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    print("S2V model loaded!")
+    self.s2v = {"model": model, "tokenizer": tokenizer}
+
+  def add_node_info(self, element_name, element_type, element_info):
+    element = {
+        "name": element_name, "type": element_type, "info": element_info}
+    if element["type"] == "choice":
+      element["info"] = sorted(list(element["info"]))
+    self.vocab["nodes"].append(element)
+
+  def add_meta(self, key, info):
+    self.vocab["meta"][key] = info
+
+  def vectorize(self, node):
+    vecs = []
+    for element in self.vocab["nodes"]:
+      key = element["name"]
+      etype = element["type"]
+      val = getattr(node, key, None)
+      if etype == "int":
+        assert val is not None
+        # Normalize
+        val = float(element["info"]["max"] - val) / (
+            element["info"]["max"] - element["info"]["min"] + 1e-6)
+        vec = np.array([val])
+      elif etype == "choice":
+        assert val is not None
+        idx = element["info"].index(val)
+        vec = np.zeros(len(element["info"]))
+        vec[idx] = 1.
+      else:
+        assert etype == "vec", f"Unknown element type {etype}!"
+        if not val:
+          if not hasattr(self, "s2v"):
+            self.load_s2v_model(element["info"]["model_name"])
+          toks = self.s2v["tokenizer"](node.text.strip(), return_tensors="pt")
+          vec = self.s2v["model"](**toks)
+          vec = vec["pooler_output"].detach().numpy().flatten()
+        else:
+          vec = val
+        if not element["info"]["len"]:
+          element["info"]["len"] = vec.shape[0]
+        assert element["info"]["len"] == vec.shape[0]
+      vecs.append(vec)
+    return np.concatenate(vecs, axis=0)
+
 
 class BranchVocab:
   def __init__(self, vocab_filepath: str = ""):
     self.vocab_filepath = vocab_filepath
     self.branches = []
+    self.module_index_to_node_offset = []
     self.signature_to_index = {}
     if vocab_filepath and os.path.exists(vocab_filepath):
       self.load_from_file()
 
   def load_from_file(self):
-    with open(self.vocab_filepath, "r") as f:
-      vocab = yaml.load(f)
+    vocab = load_yaml(self.vocab_filepath)
     self.branches = vocab["branches"]  # List of branch signatures
     self.signature_to_index = vocab["signature_to_index"]
+    self.module_index_to_node_offset = vocab["module_index_to_node_offset"]
+    print(f"Loaded branch vocab from {self.vocab_filepath}")
 
   def save_to_file(self):
     with open(self.vocab_filepath, "w") as f:
       yaml.dump({
           "branches": self.branches,
-          "signature_to_index": self.signature_to_index
+          "signature_to_index": self.signature_to_index,
+          "module_index_to_node_offset": self.module_index_to_node_offset
       }, f)
 
-  def add_branch(self, branch_to_index: str):
-    self.branches.append(branch_to_index)
-    self.signature_to_index[branch_to_index] = len(self.branches) - 1
+  def add_branch(self, branch_signature: str):
+    self.branches.append(branch_signature)
+    self.signature_to_index[branch_signature] = len(self.branches) - 1
 
-  def get_branch_index(self, branch_to_index: str):
-    if branch_to_index not in self.signature_to_index:
-      self.add_branch(branch_to_index)
-    return self.signature_to_index[branch_to_index]
+  def get_branch_index(self, branch_signature: str):
+    if branch_signature not in self.signature_to_index:
+      self.add_branch(branch_signature)
+    return self.signature_to_index[branch_signature]
+
+  def set_module_index_to_node_offset(self, module_start_index: List[int]):
+    self.module_index_to_node_offset = module_start_index
+
+  def get_branch_signature_tuple(self, branch_index: int):
+    sig = self.branches[branch_index]
+    if isinstance(sig, str):
+      sig = eval(sig)
+    assert isinstance(sig, tuple)
+    return sig
+
+  def get_module_index(self, branch_index: int):
+    branch_signature = self.get_branch_signature_tuple(branch_index)
+    first_nidx = branch_signature[0]
+    offset_range = self.module_index_to_node_offset + [9e9]
+    for module_idx, n_offset in enumerate(offset_range):
+      if n_offset <= first_nidx < offset_range[module_idx + 1]:
+        return module_idx
+    assert False, f"{first_nidx} not found within {offset_range}"
+
+  def get_mask(self, branch_index: int, module_index: int = None,
+               mask_length: int = None, return_module_index: bool = False):
+    if not module_index:
+      module_index = self.get_module_index(branch_index)
+    branch_signature = self.get_branch_signature_tuple(branch_index)
+    node_offset = self.module_index_to_node_offset[module_index]
+    node_indices = [i - node_offset for i in branch_signature]
+    if not mask_length:
+      mask_length = node_indices[-1] + 1
+    mask = np.zeros(mask_length, dtype=np.float32)
+    mask[node_indices] = 1.
+    if return_module_index:
+      return {"mask": mask, "module_index": module_index}
+    return mask
 
 
 class TestParameterVocab:
-  def __init__(self, vocab_filepath: str = "", test_template_path: str = ""):
+  def __init__(self, vocab_filepath: str = "", test_templates_dir: str = ""):
     self.vocab_filepath = vocab_filepath
-    self.test_template_path = test_template_path
-    assert vocab_filepath or test_template_path, (
-        "Must provide either vocab_filepath or test_template_path")
-    if vocab_filepath:
+    self.test_templates_dir = test_templates_dir
+    self.tokens = None
+    self.meta = None
+    assert vocab_filepath or test_templates_dir, (
+        "Must provide either vocab_filepath or test_templates_dir")
+    if vocab_filepath and os.path.exists(vocab_filepath):
       self.load_from_file()  # Vocab filepath takes precedence
-    elif test_template_path:
+    elif test_templates_dir:
       self.generate_from_test_template()
 
   def load_from_file(self):
-    with open(self.vocab_filepath, "rb") as f:
-      d = yaml.load(f, Loader=yaml.FullLoader)
+    d = load_yaml(self.vocab_filepath)
     self.tokens = d["tokens"]
     self.meta = d["param_info"]
     print(f"Loaded vocab from {self.vocab_filepath}")
@@ -96,14 +263,27 @@ class TestParameterVocab:
     print(f"Saved vocab to {self.vocab_filepath}")
 
   def generate_from_test_template(self):
-    with open(self.test_template_path, "rb") as f:
-      test_template = yaml.load(f, Loader=yaml.FullLoader)
-
-    test_parameters = test_template["gen_opts"]
+    test_parameters = {}
+    tests = set()
+    for test_template_path in glob(
+            os.path.join(self.test_templates_dir, "*.yaml")):
+      test_template = load_yaml(test_template_path)
+      if "gen_opts" in test_template:
+        for k, v in test_template["gen_opts"].items():
+          assert k not in test_parameters, f"Duplicate parameter name {k}."
+          test_parameters[k] = v
+      if "rtl_test" in test_template:
+        tests.add(test_template["rtl_test"])
+    tests = sorted(list(tests))
+    test_parameters["rtl_test"] = {
+        "type": "choice",
+        "values": tests,
+        "default": tests[0]
+    }
     vocab = []
     idx = 0
-    for key in test_template["gen_opts"]:
-      gen_opt = test_template["gen_opts"][key]
+    for key in test_parameters:
+      gen_opt = test_parameters[key]
       gen_type = gen_opt["type"]
       description = ""
       min_val = None
@@ -157,6 +337,7 @@ class TestParameterVocab:
       assert key in self.meta, f"Key '{key}' cannot be handled with this vocab"
       if self.meta[key]["type"] in ["int", "bool"]:
         parsed_tp[key] = int(val)
+    parsed_tp["rtl_test"] = test[0]["rtl_test"]
 
     test_parameters_vec = []
     for token in self.tokens:

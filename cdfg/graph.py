@@ -250,7 +250,7 @@ class EndNode(Node):
                block_depth: int = 0):
     super().__init__(verible_tree=verible_tree,
                      rtl_content=rtl_content, block_depth=block_depth)
-    self.type = "end"
+    self.text = self.type = "end"
 
 
 class DummyNode(Node):

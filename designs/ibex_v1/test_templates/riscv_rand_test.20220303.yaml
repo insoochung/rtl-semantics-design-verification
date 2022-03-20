@@ -1,0 +1,18 @@
+# Restrictions:
+# 1)  +no_wfi must be 1 to prevent the core from hanging during tests.
+# 2)  if +no_directed_instr is 1, any directed instruction streams specified by the
+#     +stream_name_... parameters will be ignored and will not be generated.
+# 3)  +no_data_page must be 0 (default) if there are any directed streams
+#     involving memory loads and stores.
+# 4)  The +enable_misaligned_instr parameter is only used by the riscv_jal_instr
+#     directed stream, and will have no effect if this stream is disabled.
+# 5)  The +enable_unaligned_load_store parameter is only used by load/store
+#     directed instruction streams, and will have no effect if these streams
+#     are disabled.
+
+base_template: base.20220303.yaml
+rtl_test: core_ibex_base_test
+gen_opts_restrictions:
+  forced_defaults:
+    no_wfi: 1
+    no_data_page: 0

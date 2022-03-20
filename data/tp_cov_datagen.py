@@ -11,32 +11,21 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from cdfg.constructor import (
-    DesignGraph, RtlFile, Module, construct_design_graph)
+    DesignGraph, Module, construct_design_graph)
 from cdfg.graph import Node, BranchNode, EndNode
 from cdfg.constants import Condition
 from coverage.extract_from_urg import extract as extract_from_urg
 from data.utils import (BranchVocab, TestParameterVocab, CoveredTestList,
-                        DatasetSaver)
-
-
-def _load_yaml(filepath: str):
-  """Loads a YAML file from the given filepath."""
-  with open(filepath, "r") as f:
-    ret = yaml.load(f, Loader=yaml.FullLoader)
-  return ret
-
-
-def _load_pkl(pkl_file: str):
-  """Loads the RTL file from the given pickle file."""
-  with open(pkl_file, "rb") as f:
-    ret = pickle.load(f)
-  return ret
+                        TestParameterCoverageHandler, load_yaml, load_pkl)
 
 
 def get_dataset_utilites(test_templates_dir: str, output_dir: str):
   """Construct vocabulary that contains vectorization information for TPs"""
-
+  os.makedirs(output_dir, exist_ok=True)
   vocab_files = glob(os.path.join(output_dir, "vocab.*.yaml"))
+  bvocab_filepath = os.path.join(output_dir, "vocab.branches.yaml")
+  if bvocab_filepath in vocab_files:
+    vocab_files.remove(bvocab_filepath)
   assert len(vocab_files) <= 1, "There should be only one or no vocab file"
 
   if not vocab_files:
@@ -44,11 +33,8 @@ def get_dataset_utilites(test_templates_dir: str, output_dir: str):
         f"No test templates directory given to generate vocab from")
     test_templates = glob(os.path.join(test_templates_dir, "*.yaml"))
     assert test_templates, f"No test templates found in '{test_templates_dir}'"
-    # TODO: Handle multiple test templates later on.
-    assert len(test_templates) == 1, (
-        f"Data generator can handle one test template at a time, "
-        f"but found {len(test_templates)} test templates")
-    vocab = TestParameterVocab(test_template_path=test_templates[0])
+
+    vocab = TestParameterVocab(test_templates_dir=test_templates_dir)
     vocab_filepath = os.path.join(
         output_dir, f"vocab.{len(vocab.tokens)}.yaml")
     vocab.save_to_file(vocab_filepath)
@@ -58,10 +44,10 @@ def get_dataset_utilites(test_templates_dir: str, output_dir: str):
   bvocab = BranchVocab(vocab_filepath=bvocab_filepath)
   covered_tests_filepath = os.path.join(output_dir, "covered_tests.txt")
   covered_tests = CoveredTestList(covered_tests_filepath)
-  dataset_path = os.path.join(output_dir, "dataset.npy")
-  dataset_saver = DatasetSaver(dataset_path)
+  dataset_path = os.path.join(output_dir, "dataset.tp_cov.npy")
+  tp_cov_handler = TestParameterCoverageHandler(dataset_path)
   utils = {"vocab": vocab, "bvocab": bvocab, "covered_tests": covered_tests,
-           "dataset_saver": dataset_saver}
+           "tp_cov_handler": tp_cov_handler}
   return utils
 
 
@@ -72,7 +58,7 @@ def load_simulator_coverage(sim_cov_dir: str):
   """
   ret = {}
   for fp in glob(os.path.join(f"{sim_cov_dir}/*.yaml")):
-    cov = _load_yaml(fp)
+    cov = load_yaml(fp)
     cov["filepath"] = fp
     ret[cov["module_name"]] = cov
   return ret
@@ -90,7 +76,7 @@ def load_design_graph(design_graph_dir: str):
     assert len(pkls) == 1, (
         "There should be only one design graph file in the directory")
     pkl_path = pkls[0]
-  return _load_pkl(pkl_path)
+  return load_pkl(pkl_path)
 
 
 def preprocess_trace_conditions(trace_conditions: List[str]):
@@ -159,6 +145,9 @@ def get_cdfg_subpath(branch_line_nums: List[int], trace_conditions: Tuple[int],
       "conditions")
   subpath_signature = tuple(cdfg_subpath)
   if subpath_signature in covered_subpaths:
+    return None  # TODO: discern different coverpoints with same subpaths
+    # If different branch condition has same subpath, assert if they do have
+    # identical paths (e.g. solo if clause show same subpath for X and 1).
     _, covered_trace = covered_subpaths[subpath_signature]
     assert len(covered_trace) == len(trace_conditions)
     for i, (ct, t) in enumerate(zip(covered_trace, trace_conditions)):
@@ -183,11 +172,9 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
   sim_covs = load_simulator_coverage(sim_cov_dir)
   # Compose a dictionary of module graphs
   module_graphs = {}
-  for rtl_file in design_graph.rtl_files:
-    assert len(rtl_file.modules) == 1, (
-        "There should be only one module per RtlFile")
-    module_name = rtl_file.filepath.split("/")[-1].split(".")[0]
-    module_graphs[module_name] = rtl_file
+  for module in design_graph.modules:
+    module_name = module.module_name
+    module_graphs[module_name] = module
   # Load test
   testfiles = glob(os.path.join(test_dir, "*.yaml"))
   assert len(testfiles) == 1, (
@@ -217,10 +204,10 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
     print(f"Syncing coverage for module: {module_name} - parsed from "
           f"'{sim_covs[module_name]['filepath']}'")
     module_coverage = {}
-    cdfg = module_graphs[module_name]
-    nodes = cdfg.nodes
+    module = module_graphs[module_name]
+    nodes = module.to_list()
     sum_nodes += len(nodes)
-    line_number_to_nodes_local = cdfg.line_number_to_nodes
+    line_number_to_nodes_local = module.line_number_to_nodes
 
     for sim_cov in sim_covs[module_name]["coverages"]:
       branch_line_nums = sim_cov["line_num"]
@@ -246,6 +233,7 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
         module_coverage[first_ln] = d
 
       ref_d = module_coverage[first_ln]
+
       for trace in traces:
         is_hit = bool(int(trace["cov"]))
         trace_conditions = list(trace["trace"])
@@ -259,6 +247,9 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
           cdfg_subpath = get_cdfg_subpath(branch_line_nums, trace_conditions,
                                           line_number_to_nodes_local,
                                           covered_subpaths)
+          if cdfg_subpath is None:
+            # TODO: discern coverpoints with same paths.
+            continue
           coverpoint_signature = str(
               tuple(node_to_index_global[n] for n in cdfg_subpath))
           coverpoint_idx = branch_vocab.get_branch_index(coverpoint_signature)
@@ -290,7 +281,11 @@ def generate_dataset_inner(test_dir: str, design_graph: DesignGraph,
 def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
                      output_dir: str, test_templates_dir: str = ""):
   """Generates the dataset from the given coverage and CDFG directories."""
-  test_dirs = glob(os.path.join(simulated_tests_dir, "*"))
+  test_dirs = []
+  for root, dirs, _ in os.walk(simulated_tests_dir):
+    if "urg_report" in dirs:
+      test_dirs.append(root)
+
   design_graph = load_design_graph(design_graph_dir)
   assert len(test_dirs) > 0, (
       f"No test directories found in '{simulated_tests_dir}'")
@@ -298,7 +293,8 @@ def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
   covered_tests = utils["covered_tests"]
   vocab = utils["vocab"]
   bvocab = utils["bvocab"]
-  dataset_saver = utils["dataset_saver"]
+  bvocab.set_module_index_to_node_offset(design_graph.module_start_index)
+  tp_cov_handler = utils["tp_cov_handler"]
   for test_dir in sorted(test_dirs):
     if not os.path.isdir(test_dir):
       continue
@@ -310,11 +306,11 @@ def generate_dataset(simulated_tests_dir: str, design_graph_dir: str,
     examples = generate_dataset_inner(test_dir, design_graph, vocab, bvocab)
     if not examples:
       continue
-    dataset_saver.add(**examples)
+    tp_cov_handler.add(**examples)
     covered_tests.add(test_dir)
 
   # These may have been updated, so save them.
-  dataset_saver.save_to_file()
+  tp_cov_handler.save_to_file()
   bvocab.save_to_file()
   covered_tests.save_to_file()
 
@@ -331,7 +327,7 @@ def main():
                             "information is located."))
 
   # CDFG related arguments
-  parser.add_argument("-cg", "--construct_cdfg", default=False,
+  parser.add_argument("-cd", "--construct_design_graph", default=False,
                       action="store_true",
                       help="Extract CDFGs from parsed_rtl_dir.")
   parser.add_argument("-pr", "--parsed_rtl_dir",
@@ -348,12 +344,12 @@ def main():
                       help="Directory to test templates")
 
   # Dataset related arguments
-  parser.add_argument("-od", "--output_dir", default="generated/dataset",
+  parser.add_argument("-od", "--output_dir", default="generated/tp_cov",
                       help="Directory to write the output files")
   args = parser.parse_args()
   extract_coverage = args.extract_coverage
   simulated_tests_dir = args.simulated_tests_dir
-  construct_cdfg = args.construct_cdfg
+  construct_design_graph = args.construct_design_graph
   parsed_rtl_dir = args.parsed_rtl_dir
   rtl_dir = args.rtl_dir
   design_graph_dir = args.design_graph_dir
@@ -362,7 +358,7 @@ def main():
 
   if extract_coverage:
     extract_from_urg(report_dir=simulated_tests_dir, in_place=True)
-  if construct_cdfg:
+  if construct_design_graph:
     assert parsed_rtl_dir and rtl_dir, (
         "Must specify both parsed_rtl_dir and rtl_dir to construct CDFGs")
     construct_design_graph(parsed_rtl_dir, rtl_dir, design_graph_dir)

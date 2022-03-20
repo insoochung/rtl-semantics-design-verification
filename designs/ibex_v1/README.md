@@ -31,7 +31,7 @@ apt-get install device-tree-compiler
 ```bash
 cd ibex/dv/uvm/core_ibex
 
-make SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1 # TODO: feed in randomized tests instead of the default testsets.
+make SIMULATOR=vcs ISS=spike ITERATIONS=1 COV=1
 
 # You can find URG coverage report below.
 ls out/rtl_sim/urgReport
@@ -40,23 +40,31 @@ ls out/rtl_sim/urgReport
 
 ## Parsing design to ASTs
 
-1. Build and install verible commands according to the documents [here](../../third_party/verible/).
+1. `./parsed_rtl` contains AST files attained using verible. Use that or refer to [this document](../../docs/verible.md) to generate your own.
 
+## Automated test generation and test simulation
 
-2. Parse RTL files using verible.
+1. Follow first two steps of `Simulation` to set all environment variables and build dependencies.
+
+2. Generate tests.
 
 ```bash
-# A. Parse design to json format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree --export_json > $PARSE_RESULTS_DIR/$(basename -- $sv).json
-done
+python generate_tests.py \
+  --template_dir test_templates/ \
+  --output_dir $DATA_DIR/generated/tests \
+  --num_tests 4000
+# If you want to run a generated test
+# 1. Replace 'ibex/dv/uvm/core_ibex/riscv_dv_extension/testlist.yaml' with the generated test.
+# 2. Follow step 3 in `Simulation` section.
+```
 
-# B. Parse design to tree format
-for sv in $RTL_DIR/*sv
-do
-  verible-verilog-syntax  $sv  --printtree > $PARSE_RESULTS_DIR/$(basename -- $sv).tree
-done
+3. Run tests
+
+```bash
+python run_tests.py \
+  --tests_dir $DATA_DIR/generated/tests \
+  --output_dir $DATA_DIR/generated/simulated \
+  --verification_dir ibex/dv/uvm/core_ibex
 ```
 
 ## Next

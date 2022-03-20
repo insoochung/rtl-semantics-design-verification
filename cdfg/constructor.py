@@ -19,7 +19,6 @@ from cdfg.utils import (preprocess_rtl_str,
                         get_case_item_tree)
 
 
-
 def _get_start_end_node(nodes: Union[tuple, list]):
   """Get real start and end nodes of a block."""
   assert len(nodes)
@@ -379,6 +378,7 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   connect_nodes(body_nodes[-1], always_node.end_node)
   # Loop back to the start node.
   connect_nodes(always_node.end_node, always_node)
+  always_node.update_text_and_type(force_end=body_nodes[0].start)
 
   # Post process the always node.
   always_node.update_condition_vars()
@@ -403,89 +403,42 @@ class DesignGraph:
   def __init__(self, parsed_rtl_dir: str, rtl_dir: str):
     self.parsed_rtl_dir = parsed_rtl_dir
     self.rtl_dir = rtl_dir
-    self.construct_rtl_files()
+    self.modules = []
+    self.module_start_index = []
+    self.nodes = []
+    self.node_to_index = {}
+    self.construct_modules()
     self.postprocess()
 
-  def construct_rtl_files(self):
-    """Construct RtlFile objects from parsed RTL files."""
+  def construct_modules(self):
+    """Construct all modules found in the RTL directory."""
     parsed_rtl = get_verible_parsed_rtl(self.parsed_rtl_dir,
                                         orig_dir=self.rtl_dir)
-    self.rtl_files = []
     for filepath, verible_tree in parsed_rtl.items():
       filename = os.path.basename(filepath)
       print(f"-- Constructing CDFGs from: {filepath} --")
-      rtl_file_obj = RtlFile(verible_tree, filepath)
-      if rtl_file_obj.num_always_blocks == 0:
-        print(f"-- Skipping {filename} because it has no always blocks --\n")
-        del rtl_file_obj
-        continue
-      self.rtl_files.append(rtl_file_obj)
+      with open(filepath, "r") as f:
+        rtl_content = f.read()
+      for module_subtree in find_subtree(verible_tree, Tag.MODULE):
+        module = Module(module_subtree, rtl_content)
+        if len(module.always_graphs) == 0:
+          print(f"-- Skipping {filename} because it has no always blocks --\n")
+          del module
+          continue
+        self.modules.append(module)
     print(
         f"-- CDFGs successfully constructed from design {self.rtl_dir}! --\n")
 
   def postprocess(self):
     """Postprocess DesignGraph the after RtlFile objects are created."""
     # Line up all nodes within the design graph
-    self.nodes = []
-    self.node_to_index = {}
     idx_offset = 0
-    for rtl_file in self.rtl_files:
-      nodes = rtl_file.nodes
-      self.nodes.extend(nodes)
-      for i, n in enumerate(nodes):
+    for module in self.modules:
+      self.nodes.extend(module.nodes)
+      self.module_start_index.append(idx_offset)
+      for i, n in enumerate(module.nodes):
         self.node_to_index[n] = i + idx_offset
       idx_offset = len(self.nodes)
-
-
-class RtlFile:
-  """Class to manage a RTL file.
-
-  Attributes:
-  filepath -- the path to the RTL file (str)
-  verible_tree -- the verible tree of the RTL file (dict)
-  rtl_content -- the content of the RTL file (str)
-  modules -- a list of Module objects (List(Module))
-  num_always_blocks -- sum of always blocks in all modules (int)
-  """
-
-  def __init__(self, verible_tree: dict, filepath: str):
-    """Construct a RtlFile object from a verible_tree."""
-    self.filepath = filepath
-    self.verible_tree = verible_tree
-    with open(self.filepath, "r") as f:
-      self.rtl_content = f.read()
-    self.modules = []
-    self.construct_modules()
-    self.postprocess()
-
-  def construct_modules(self):
-    """Construct all modules found in the file."""
-    module_subtrees = find_subtree(self.verible_tree, Tag.MODULE)
-    if len(module_subtrees) > 1:
-      print(
-          f"{self.filepath} has {len(module_subtrees)}(!= 1) module subtrees, "
-          f"this may not work with other components of this tool.")
-    if module_subtrees:
-      self.modules = [Module(mst, self.rtl_content) for mst in module_subtrees]
-
-  def postprocess(self):
-    """Post-process the RtlFile object after all modules are constructed."""
-    self.num_always_blocks = sum([len(m.always_graphs) for m in self.modules])
-    # Line up all nodes within RTL module
-    self.nodes = []
-    for m in self.modules:
-      self.nodes.extend(m.to_list())
-    for n in self.nodes:  # Postprocess next_node conditions
-      n.update_next_node_conditions()
-    # Create line number to nodes mapping
-    self.line_number_to_nodes = {}
-    self.node_to_index = {}
-    for i, n in enumerate(self.nodes):
-      line_num = n.line_num
-      if line_num not in self.line_number_to_nodes:
-        self.line_number_to_nodes[line_num] = []
-      self.line_number_to_nodes[line_num].append(n)
-      self.node_to_index[n] = i
 
 
 class Module:
@@ -501,8 +454,17 @@ class Module:
     self.rtl_content = rtl_content
     self.verible_tree = verible_tree
     self.always_graphs = []
+    self.set_name()
     self.construct_always_graphs()
+    self.postprocess()
     # TODO: Construct continuous assignments outside of always blocks.
+
+  def set_name(self):
+    """Set the module name."""
+    children = self.verible_tree["children"]
+    assert children[0]["tag"] == Tag.MODULE_HEADER
+    assert children[0]["children"][2]["tag"] == Tag.SYMBOL_IDENTIFIER
+    self.module_name = children[0]["children"][2]["text"]
 
   def construct_always_graphs(self):
     """Construct all graphs of always blocks found in the module."""
@@ -527,6 +489,21 @@ class Module:
     for g in self.always_graphs:
       ret += g.to_list()
     return ret
+
+  def postprocess(self):
+    # Create line number to nodes mapping
+    self.nodes = self.to_list()
+    for n in self.nodes:  # Postprocess next_node conditions
+      n.update_next_node_conditions()
+
+    self.line_number_to_nodes = {}
+    self.node_to_index = {}
+    for i, n in enumerate(self.nodes):
+      line_num = n.line_num
+      if line_num not in self.line_number_to_nodes:
+        self.line_number_to_nodes[line_num] = []
+      self.line_number_to_nodes[line_num].append(n)
+      self.node_to_index[n] = i
 
 
 if __name__ == "__main__":

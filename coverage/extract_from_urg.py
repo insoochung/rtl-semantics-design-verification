@@ -16,6 +16,9 @@ def extract_from_directory(report_dir, output_dir="", in_place=False):
   for root, _, filenames in os.walk(report_dir):
     if in_place:
       output_dir = os.path.join(root, "extracted")
+    if os.path.exists(output_dir):
+      print(f"Output directory {output_dir} already exists, so skipping...\n")
+      continue
     for filename in filenames:
       if not filename.endswith(".html") or not filename.startswith("mod"):
         continue
