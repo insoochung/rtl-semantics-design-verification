@@ -33,6 +33,6 @@ python nn/train.py \
   --seed 123 \ # Random seed for reproducibility
   --append_seed_to_ckpt_dir \ # This will add seed information to the checkpoint directory name
   --ckpt_dir $DATA/ckpts/split_$SPLIT/ \  # Where to save model checkpoints
-  -tf_data_dir $DATA_DIR/nn_dataset \
+  --tf_data_dir $DATA_DIR/nn_dataset \
   --generate_data # Previously generated data is processed to fit NN data pipeline, only required once
 ```
