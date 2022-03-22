@@ -1,5 +1,6 @@
 import os
 import pickle
+import codecs
 
 from glob import glob
 from typing import List
@@ -11,14 +12,14 @@ import numpy as np
 
 def load_yaml(filepath: str):
   """Loads a YAML file from the given filepath."""
-  with open(filepath, "r") as f:
+  with codecs.open(filepath, "r", encoding="utf-8") as f:
     ret = yaml.load(f, Loader=yaml.FullLoader)
   return ret
 
 
 def load_pkl(pkl_file: str):
   """Loads the RTL file from the given pickle file."""
-  with open(pkl_file, "rb") as f:
+  with codecs.open(pkl_file, "rb") as f:
     ret = pickle.load(f)
   return ret
 
@@ -109,7 +110,7 @@ class NodeVocab:
     print(f"Loaded vocab from {self.vocab_filepath}")
 
   def save_to_file(self):
-    with open(self.vocab_filepath, "w") as f:
+    with codecs.open(self.vocab_filepath, "w") as f:
       yaml.dump(self.vocab, f)
     print(f"Saved vocab to {self.vocab_filepath}")
 
@@ -185,7 +186,7 @@ class BranchVocab:
     print(f"Loaded branch vocab from {self.vocab_filepath}")
 
   def save_to_file(self):
-    with open(self.vocab_filepath, "w") as f:
+    with codecs.open(self.vocab_filepath, "w") as f:
       yaml.dump({
           "branches": self.branches,
           "signature_to_index": self.signature_to_index,
@@ -258,7 +259,7 @@ class TestParameterVocab:
   def save_to_file(self, vocab_filepath: str = ""):
     if vocab_filepath:
       self.vocab_filepath = vocab_filepath
-    with open(self.vocab_filepath, "w") as f:
+    with codecs.open(self.vocab_filepath, "w") as f:
       yaml.dump({"tokens": self.tokens, "param_info": self.meta}, f)
     print(f"Saved vocab to {self.vocab_filepath}")
 
@@ -325,7 +326,7 @@ class TestParameterVocab:
     self.meta = test_parameters
 
   def vectorize_test(self, test_filepath: str, normalize=True):
-    with open(test_filepath, "rb") as f:
+    with codecs.open(test_filepath, "rb") as f:
       test = yaml.load(f, Loader=yaml.FullLoader)
     assert len(test) == 1, "Test file must contain only one test"
     test_parameters = test[0]["gen_opts"].split()
@@ -370,13 +371,13 @@ class CoveredTestList:
     self.covered_tests.add(os.path.abspath(test_filepath))
 
   def load_from_file(self):
-    with open(self.filepath, "r") as f:
+    with codecs.open(self.filepath, "r", encoding="utf-8") as f:
       lines = f.readlines()
     for i, l in enumerate(lines):
       lines[i] = l.strip()
     self.covered_tests = set(lines)
 
   def save_to_file(self):
-    with open(self.filepath, "w") as f:
+    with codecs.open(self.filepath, "w") as f:
       for t in sorted(list(self.covered_tests)):
         f.write(t + "\n")

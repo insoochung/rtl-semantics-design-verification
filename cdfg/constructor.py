@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 import pickle
+import codecs
 from typing import Union
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -177,6 +178,7 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   # Construct an end node:
   branch_node.end_node = end_node = EndNode(block_depth=block_depth)
   for cond, node in zip(conditions_list, nodes):
+    print(cond, node)
     # Connect case-item-list node to branch node and end node.
     connect_nodes(branch_node, node, condition=cond)
     connect_nodes(node, end_node)
@@ -378,7 +380,8 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   connect_nodes(body_nodes[-1], always_node.end_node)
   # Loop back to the start node.
   connect_nodes(always_node.end_node, always_node)
-  always_node.update_text_and_type(force_end=body_nodes[0].start)
+  always_node.update_text_and_type(
+      force_end=get_leftmost_node(body_nodes[0]).start)
 
   # Post process the always node.
   always_node.update_condition_vars()
@@ -392,7 +395,7 @@ def construct_design_graph(parsed_rtl_dir, rtl_dir, output_dir):
   design_graph = DesignGraph(parsed_rtl_dir, rtl_dir)
   os.makedirs(output_dir, exist_ok=True)
   pkl_name = os.path.join(output_dir, "design_graph.pkl")
-  with open(pkl_name, "wb") as f:
+  with codecs.open(pkl_name, "wb") as f:
     pickle.dump(design_graph, f)
   print("Saved design graph to {}".format(pkl_name))
 
@@ -417,7 +420,7 @@ class DesignGraph:
     for filepath, verible_tree in parsed_rtl.items():
       filename = os.path.basename(filepath)
       print(f"-- Constructing CDFGs from: {filepath} --")
-      with open(filepath, "r") as f:
+      with codecs.open(filepath, "r", encoding="utf-8") as f:
         rtl_content = f.read()
       for module_subtree in find_subtree(verible_tree, Tag.MODULE):
         module = Module(module_subtree, rtl_content)
