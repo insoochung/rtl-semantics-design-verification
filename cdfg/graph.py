@@ -135,8 +135,8 @@ class Node:
       # Only data edges are allowed to have multiple non-unique connections
       for n, cond in self.next_nodes:
         assert cond != next_condition, (
-            f"Tried to add connection -> {cond}: {next_node}. "
-            f"Connection {self.type} -> {cond}: {next_condition} already "
+            f"Tried to add connection {self} -> {cond}: {next_node}.\n"
+            f"Connection {self} -> {cond}: {n} already "
             f"exists.")
     self.next_nodes.append((next_node, next_condition))
     if isinstance(next_condition, list) and len(next_condition) == 1:

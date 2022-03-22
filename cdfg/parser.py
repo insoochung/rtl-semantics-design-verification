@@ -1,6 +1,7 @@
 import os
 import json
 import sys
+import codecs
 from zipfile import ZipFile
 from glob import glob
 
@@ -41,7 +42,7 @@ def get_verible_parsed_rtl(parsed_dir,
   assert len(json_files) > 0, f"Still, no json files found in {parsed_dir}"
   res = {}
   for json_filepath in json_files:
-    with open(json_filepath, "r") as file:
+    with codecs.open(json_filepath, "r", encoding="utf-8") as file:
       log_fn(f"Reading {json_filepath}")
       j = json.load(file)
       assert len(j.keys()) == 1, (
