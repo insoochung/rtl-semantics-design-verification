@@ -18,6 +18,8 @@ class Tag:
   BLOCK_ITEM_LIST = "kBlockItemStatementList"
   STATEMENT = "kStatement"
 
+  MACRO_GENERIC_ITEM = "kMacroGenericItem"
+
   NULL_STATEMENT = "kNullStatement"
   CASE_ITEM_LIST = "kCaseItemList"
   EXPRESSION_LIST = "kExpressionList"

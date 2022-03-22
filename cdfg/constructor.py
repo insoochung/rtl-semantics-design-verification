@@ -54,7 +54,8 @@ def construct_terminal(verible_tree: dict, rtl_content: str,
                        block_depth: int = 0):
   """Construct assignments from the verible tree."""
   tag = verible_tree["tag"]
-  assert tag in Tag.TERMINAL_STATEMENTS + Tag.EXPRESSIONS, (
+  assert tag in (
+      Tag.TERMINAL_STATEMENTS + Tag.EXPRESSIONS + [Tag.MACRO_GENERIC_ITEM]), (
       f"Cannot construct assignment from "
       f"({get_subtree_text(verible_tree, rtl_content)} / {tag})")
   # Handle assignment without conditional statements.
@@ -329,11 +330,14 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
     elif tag in Tag.TERMINAL_STATEMENTS:
       new_nodes = construct_statement(statement, rtl_content,
                                       block_depth=block_depth)
+    elif tag == Tag.MACRO_GENERIC_ITEM:
+      new_nodes = construct_terminal(statement, rtl_content,
+                                     block_depth=block_depth)
     else:
       assert False, (
           f"Unsupported statement "
           f"'{get_subtree_text(statement, rtl_content)}' "
-          f"in sequence block.")
+          f"in sequence block.\n")
 
     nodes.append(new_nodes)
   for i, n in enumerate(nodes):  # Connect nodes
