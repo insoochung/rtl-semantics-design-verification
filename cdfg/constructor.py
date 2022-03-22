@@ -17,7 +17,8 @@ from cdfg.utils import (preprocess_rtl_str,
                         get_subtree_text,
                         get_leftmost_node,
                         get_rightmost_node,
-                        get_case_item_tree)
+                        get_case_item_tree,
+                        print_tags)
 
 
 def _get_start_end_node(nodes: Union[tuple, list]):
@@ -85,15 +86,19 @@ def construct_if_else_statement(verible_tree: dict, rtl_content: str,
   assert if_body_node["tag"] == Tag.IF_BODY
   assert len(if_body_node["children"]) == 1
   block_node = if_body_node["children"][0]
-  assert block_node["tag"] in Tag.TERMINAL_STATEMENTS + Tag.BLOCK_STATEMENTS, (
-      f"{block_node['tag']} is not a terminal statement or sequence block.")
-  if block_node["tag"] in Tag.BLOCK_STATEMENTS:
-    if_nodes = construct_block(
-        block_node, rtl_content, block_depth=block_depth + 1)
-  else:  # Tag.TERMINAL_STATEMENTS
-    if_node = construct_statement(block_node, rtl_content,
-                                  block_depth=block_depth + 1)
-    if_nodes = [if_node]
+
+  if block_node["tag"] not in Tag.IGNORE:
+    assert block_node["tag"] in Tag.TERMINAL_STATEMENTS + Tag.BLOCK_STATEMENTS, (
+        f"{block_node['tag']} is not a terminal statement or sequence block.")
+    if block_node["tag"] in Tag.BLOCK_STATEMENTS:
+      if_nodes = construct_block(
+          block_node, rtl_content, block_depth=block_depth + 1)
+    else:  # Tag.TERMINAL_STATEMENTS
+      if_node = construct_statement(block_node, rtl_content,
+                                    block_depth=block_depth + 1)
+      if_nodes = [if_node]
+  else:
+    if_nodes = [DummyNode(block_depth=block_depth + 1)]
 
   # Construct an end node:
   branch_node.end_node = end_node = EndNode(block_depth=block_depth)
@@ -141,7 +146,7 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   assert len(children) == 5
   children_tags = [None if c is None else c["tag"] for c in children]
   assert children_tags[0] in [Tag.UNIQUE, None], children_tags
-  assert children_tags[1] in [Tag.CASE, Tag.CASEZ], children_tags
+  assert children_tags[1] in [Tag.CASE, Tag.CASEZ, Tag.CASEX], children_tags
   assert children_tags[2] == Tag.PARENTHESIS_GROUP, children_tags
   assert children_tags[3] == Tag.CASE_ITEM_LIST, children_tags
   assert children_tags[4] == Tag.ENDCASE, children_tags
@@ -154,10 +159,11 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   conditions_list = []
   for case_item in get_case_item_tree(verible_tree)["children"]:
     children = case_item["children"]
-    children_tags = [c["tag"] for c in children]
+    children_tags = [None if c is None else c["tag"] for c in children]
     assert len(children) == 3
     assert children_tags[0] in [Tag.DEFAULT, Tag.EXPRESSION_LIST]
-    assert children_tags[1] == Tag.COLON
+    assert (children_tags[1] == Tag.COLON
+            or children_tags[0] == Tag.DEFAULT and children_tags[1] == None)
     assert children_tags[2] in Tag.BLOCK_STATEMENTS + Tag.TERMINAL_STATEMENTS
     # Construct case-item-list node.
     node = children[2]
@@ -179,7 +185,6 @@ def construct_case_statement(verible_tree: dict, rtl_content: str,
   # Construct an end node:
   branch_node.end_node = end_node = EndNode(block_depth=block_depth)
   for cond, node in zip(conditions_list, nodes):
-    print(cond, node)
     # Connect case-item-list node to branch node and end node.
     connect_nodes(branch_node, node, condition=cond)
     connect_nodes(node, end_node)
@@ -209,13 +214,19 @@ def construct_for_loop_statement(verible_tree: dict, rtl_content: str,
   children = verible_tree["children"]
   assert len(children) == 2
   assert children[0]["tag"] == Tag.FOR_LOOP_CONDITION
-  assert children[1]["tag"] == Tag.SEQ_BLOCK
   # Construct start_node
   start_node = Node(verible_tree=verible_tree, rtl_content=rtl_content,
                     block_depth=block_depth)
-  # Construct sequence block nodes.
-  nodes = construct_block(children[1], rtl_content,
-                          block_depth=block_depth + 1)
+  if children[1]["tag"] == Tag.SEQ_BLOCK:
+    # Construct sequence block nodes.
+    nodes = construct_block(children[1], rtl_content,
+                            block_depth=block_depth + 1)
+  else:
+    # When a loop body is a single statement, construct a statement only
+    nodes = construct_statement(children[1], rtl_content,
+                                block_depth=block_depth + 1)
+    if not isinstance(nodes, list):
+      nodes = [nodes]
   # Connect sequence block nodes to start node.
   connect_nodes(start_node, nodes[0])
   return start_node, nodes[-1]
@@ -238,7 +249,6 @@ def construct_statement_with_ternary_cond(verible_tree: dict, rtl_content: str,
   """Construct ternary assignment from verible tree"""
   assert (is_ternary_assignment(verible_tree)
           or is_ternary_expression(verible_tree))
-  tag = verible_tree["tag"]
   all_ternary_trees = find_subtree(verible_tree, Tag.TERNARY_EXPRESSION)
   assert len(all_ternary_trees) == 1, (
       f"{get_subtree_text(verible_tree, rtl_content)}\n"
@@ -298,7 +308,7 @@ def construct_block(verible_tree: dict, rtl_content: str,
     return construct_for_loop_statement(verible_tree, rtl_content,
                                         block_depth=block_depth)
   else:
-    assert 0, f"Cannot construct block from {tag}, not implemented."
+    assert False, f"Cannot construct block from {tag}, not implemented."
 
 
 def construct_seq_block(verible_tree: dict, rtl_content: str,
@@ -320,7 +330,7 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
   nodes = []
   for statement in statement_list["children"]:
     tag = statement["tag"]
-    if tag in Tag.BRANCH_STATEMENTS:
+    if tag in Tag.BRANCH_STATEMENTS + [Tag.SEQ_BLOCK]:
       new_nodes = construct_block(statement, rtl_content,
                                   block_depth=block_depth)
 
@@ -333,6 +343,9 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
     elif tag == Tag.MACRO_GENERIC_ITEM:
       new_nodes = construct_terminal(statement, rtl_content,
                                      block_depth=block_depth)
+    elif tag in Tag.IGNORE:
+      print(f"Ignoring '{tag}'...")
+      new_nodes = DummyNode(block_depth=block_depth)
     else:
       assert False, (
           f"Unsupported statement "
@@ -340,6 +353,7 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
           f"in sequence block.\n")
 
     nodes.append(new_nodes)
+
   for i, n in enumerate(nodes):  # Connect nodes
     if i == 0:
       continue
@@ -354,18 +368,21 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
   """Construct always node and its children nodes."""
   always_node = AlwaysNode(verible_tree, rtl_content, block_depth)
   children = always_node.verible_tree["children"]
-  assert len(children) == 2
   if always_node.type in ["always_ff", "always"]:
+    if children[1] is None:
+      assert False, f"Empty always block found. Possible verible error."
+
     content = children[1]["children"]
-    assert len(content) == 2
-    condition, body = content[0], content[1]
-    assert condition["tag"] == Tag.ALWAYS_CONDITION
-    always_node.condition = get_subtree_text(
-        condition, always_node.rtl_content)
+    if len(content) == 2 and content[0]["tag"] == Tag.ALWAYS_CONDITION:
+      condition, body = content[0], content[1]
+      always_node.condition = get_subtree_text(
+          condition, always_node.rtl_content)
+    else:
+      # In case always block does not have condition.
+      body = children[1]
   else:
     assert always_node.type in ["always_comb", "always_latch"], (
         f"Unknown '{always_node.type}' type.")
-    body = children[1]
 
   if body["tag"] in Tag.BLOCK_STATEMENTS:
     body_nodes = construct_block(
@@ -399,8 +416,14 @@ def construct_design_graph(parsed_rtl_dir, rtl_dir, output_dir):
   design_graph = DesignGraph(parsed_rtl_dir, rtl_dir)
   os.makedirs(output_dir, exist_ok=True)
   pkl_name = os.path.join(output_dir, "design_graph.pkl")
-  with codecs.open(pkl_name, "wb") as f:
-    pickle.dump(design_graph, f)
+  try:
+    with codecs.open(pkl_name, "wb") as f:
+      pickle.dump(design_graph, f)
+  except RecursionError:
+    print("RecursionError: Extending recursion limit.")
+    sys.setrecursionlimit(10000)
+    with codecs.open(pkl_name, "wb") as f:
+      pickle.dump(design_graph, f)
   print("Saved design graph to {}".format(pkl_name))
 
 
@@ -478,6 +501,8 @@ class Module:
     always_subtrees = find_subtree(self.verible_tree, Tag.ALWAYS)
     for t in always_subtrees:
       always_node = construct_always_node(t, self.rtl_content)
+      if always_node is None:
+        continue
       self.always_graphs.append(always_node)
     num_always = len(self.always_graphs)
 
