@@ -267,7 +267,8 @@ def run_with_seed(seed, *args, append_seed_to_ckpt_dir=False, **kwargs):
   m["seed"] = seed
   print(f"Train info: {m}")
   with open(os.path.join(kwargs["ckpt_dir"], "meta.json"), "w") as f:
-    f.write(json.dumps(m, indent=2, sort_keys=True))
+    f.write(json.dumps(m, indent=2, sort_keys=True,
+                       default=lambda o: "<not serializable>"))
 
 
 if __name__ == "__main__":
