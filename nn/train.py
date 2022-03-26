@@ -253,10 +253,10 @@ def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
     test_model = get_d2v_model(**model_config)
     result = evaluate(test_model, dataset["test"], ckpt_dir, ckpt_name)
     print(f"Test result: {result}")
-    meta["result"] = result
 
   meta = {"splits": splits, "model_config": model_config,
-          "train": {"history": history.history, "params": history.params}}
+          "train": {"history": history.history, "params": history.params},
+          "result": result}
 
   return meta
 

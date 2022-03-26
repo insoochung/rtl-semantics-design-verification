@@ -78,8 +78,7 @@ class CdfgReader(tf.keras.layers.Layer):
     self.gnn_dropouts.append(Dropout(dropout))
     if aggregate == "lstm":
       self.aggregate_layer = tf.keras.layers.LSTM(
-          n_hidden, activation=final_activation, dropout=dropout,
-          dtype=dtype)
+          n_hidden, dropout=dropout, dtype=dtype)
 
   def call(self, inputs):
     # cdfg_xs (batch_size, num_nodes, num_features)
