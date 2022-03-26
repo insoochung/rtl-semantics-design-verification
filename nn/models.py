@@ -10,33 +10,32 @@ from nn import layers
 
 
 class Design2VecBase(Model):
-  def __init__(self, cdfgs, n_hidden, n_labels=1, n_gcn_layers=4,
-               n_mlp_hidden=256, dropout=0.1, cov_point_aggregate="mean",
-               dtype=tf.float32):
+  def __init__(self, cdfgs, n_hidden, n_labels=1, n_gnn_layers=4,
+               n_mlp_hidden=256, n_mlp_layers=2, dropout=0.1,
+               cov_point_aggregate="mean", dtype=tf.float32):
     super().__init__()
 
     self.n_hidden = n_hidden
     self.n_labels = n_labels
-    self.n_gcn_layers = n_gcn_layers
+    self.n_gnn_layers = n_gnn_layers
     self.n_mlp_hidden = n_mlp_hidden
     self.dropout = dropout
-    self.dtype = dtype
 
     # Prepare left-hand side of the model (design reader side)
     self.cdfg_reader = layers.CdfgReader(
-        cdfgs=cdfgs, n_hidden=n_hidden, n_gcn_layers=n_gcn_layers,
+        cdfgs=cdfgs, n_hidden=n_hidden, n_gnn_layers=n_gnn_layers,
         dropout=dropout, activation="relu", final_activation="softmax",
-        aggregate=cov_point_aggregate, dtype=self.dtype)
+        aggregate=cov_point_aggregate, dtype=dtype)
     # Prepare right-hand side of the model (test parameter side)
     self.tp_reader = layers.FeedForward(
-        n_hidden=n_mlp_hidden, n_labels=n_mlp_hidden, dropout=dropout,
+        n_hidden=n_mlp_hidden, n_out=n_mlp_hidden, n_layers=n_mlp_layers,
         activation="relu", final_activation="softmax", dropout_at_end=True,
-        dtype=self.dtype)
+        dropout=dropout, dtype=dtype)
     # Prepare top that produces final output
     self.top = layers.FeedForward(
-        n_hidden=n_mlp_hidden, n_labels=n_labels, dropout=dropout,
+        n_hidden=n_mlp_hidden, n_out=n_labels, n_layers=n_mlp_layers,
         activation="relu", final_activation="sigmoid", dropout_at_end=False,
-        dtype=self.dtype)
+        dropout=dropout, dtype=dtype)
 
   def call(self, inputs):
     """Call the model."""
