@@ -19,7 +19,8 @@ def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout,
   graphs = graph_handler.get_dataset()
   model = Design2VecBase(graphs, n_hidden=n_hidden, n_gnn_layers=n_gnn_layers,
                          n_mlp_hidden=n_mlp_hidden, dropout=dropout,
-                         cov_point_aggregate=aggregate, use_attention=True)
+                         cov_point_aggregate=aggregate,
+                         use_attention=use_attention)
   return model
 
 
