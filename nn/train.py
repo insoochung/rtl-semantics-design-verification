@@ -45,13 +45,13 @@ def split_dataset(dataset, split_ratio):
   train_ds, valid_ds, test_ds = None, None, None
   if train:
     train_ds = tf.data.experimental.sample_from_datasets([
-      dataset[i] for i in train])
+        dataset[i] for i in train])
   if valid:
     valid_ds = tf.data.experimental.sample_from_datasets([
-      dataset[i] for i in valid])
+        dataset[i] for i in valid])
   if test:
     test_ds = tf.data.experimental.sample_from_datasets([
-      dataset[i] for i in test])
+        dataset[i] for i in test])
   splits = {"train": train, "valid": valid, "test": test}
   dataset = {"train": train_ds, "valid": valid_ds, "test": test_ds}
   print(f"Dataset split into: {splits}")
@@ -180,11 +180,13 @@ def save_dataset(dataset, tf_data_dir):
   print("Data saved.")
 
 
-def get_d2v_model(graph_dir, n_hidden, n_gcn_layers, n_mlp_hidden, dropout):
+def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout,
+                  aggregate):
   graph_handler = GraphHandler(output_dir=graph_dir)
   graphs = graph_handler.get_dataset()
-  model = Design2VecBase(graphs, n_hidden=n_hidden, n_gcn_layers=n_gcn_layers,
-                         n_mlp_hidden=n_mlp_hidden, dropout=dropout)
+  model = Design2VecBase(graphs, n_hidden=n_hidden, n_gnn_layers=n_gnn_layers,
+                         n_mlp_hidden=n_mlp_hidden, dropout=dropout,
+                         cov_point_aggregate=aggregate)
   return model
 
 
@@ -200,7 +202,7 @@ def train(model, dataset, ckpt_dir, ckpt_name="best.ckpt",
   callbacks = [tf.keras.callbacks.TensorBoard(os.path.join(ckpt_dir, "logs"))]
   if dataset["valid"]:
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss",
-                                                    patience=3, verbose=True)
+                                                     patience=3, verbose=True)
     model_ckpt = tf.keras.callbacks.ModelCheckpoint(
         ckpt_path, save_format="tf", monitor="val_loss", save_best_only=True,
         verbose=True)
@@ -221,17 +223,17 @@ def evaluate(model, test_dataset, ckpt_dir, ckpt_name="best.ckpt"):
 
 
 def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
-        tp_cov_dir=None, n_hidden=32, n_gcn_layers=4, n_mlp_hidden=32,
+        tp_cov_dir=None, n_hidden=32, n_gnn_layers=4, n_mlp_hidden=32,
         dropout=0.1, learning_rate=None, batch_size=32, epochs=50,
         split_ratio=(0.7, 0.15, 0.15), generate_data=False,
-        hit_lower_bound=0.1, hit_upper_bound=0.9):
+        hit_lower_bound=0.1, hit_upper_bound=0.9, aggregate="mean"):
   if generate_data:
     dataset = combine_data(graph_dir, tp_cov_dir,
                            hit_lower_bound, hit_upper_bound)
     save_dataset(dataset, tf_data_dir)
   model_config = {"graph_dir": graph_dir, "n_hidden": n_hidden,
-                  "n_gcn_layers": n_gcn_layers, "n_mlp_hidden": n_mlp_hidden,
-                  "dropout": dropout}
+                  "n_gnn_layers": n_gnn_layers, "n_mlp_hidden": n_mlp_hidden,
+                  "dropout": dropout, "aggregate": aggregate}
 
   print(f"Model config: {model_config}")
   # Load dataset
@@ -239,20 +241,22 @@ def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
   # Split dataset
   dataset, splits = split_dataset(dataset, split_ratio)
   for k, ds in dataset.items():
-    if ds: dataset[k] = ds.batch(batch_size)
+    if ds:
+      dataset[k] = ds.batch(batch_size)
 
   # Train model
   model = get_d2v_model(**model_config)
   history = train(model, dataset, ckpt_dir, ckpt_name, epochs, learning_rate)
-  meta = {"splits": splits, "model_config": model_config,
-          "train": {"history": history.history, "params": history.params}}
 
   # Evaluate model
   if dataset["test"]:
     test_model = get_d2v_model(**model_config)
     result = evaluate(test_model, dataset["test"], ckpt_dir, ckpt_name)
     print(f"Test result: {result}")
-    meta["result"] = result
+
+  meta = {"splits": splits, "model_config": model_config,
+          "train": {"history": history.history, "params": history.params},
+          "result": result}
 
   return meta
 
@@ -292,13 +296,13 @@ if __name__ == "__main__":
                            "comma-separated string format.")
 
   # NN related flags
-  parser.add_argument("-cd", "--ckpt_dir", type=str,
+  parser.add_argument("-cd", "--ckpt_dir", type=str, required=True,
                       help="Directory to save the checkpoints.")
   parser.add_argument("--ckpt_name", type=str, default="model.ckpt",
                       help="Name of the checkpoint.")
   parser.add_argument("--n_hidden", type=int, default=32,
                       help="Number of hidden units.")
-  parser.add_argument("--n_gcn_layers", type=int, default=4,
+  parser.add_argument("--n_gnn_layers", type=int, default=4,
                       help="Number of GCN layers.")
   parser.add_argument("--n_mlp_hidden", type=int, default=32,
                       help="Number of hidden units in the MLP.")
@@ -313,6 +317,9 @@ if __name__ == "__main__":
                       help="Seed to set.")
   parser.add_argument("--append_seed_to_ckpt_dir", action="store_true",
                       default=False, help="Append the seed path/dir vars.")
+  parser.add_argument("--aggregate", type=str, default="mean",
+                      help="How the CDFG reader will aggregate coverpoint "
+                           "embedding")
 
   args = parser.parse_args()
   print(f"Received arguments: {args}")
