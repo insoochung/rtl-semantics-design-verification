@@ -10,8 +10,9 @@ from nn import layers
 
 
 class Design2VecBase(Model):
-  def __init__(self, cdfgs, n_hidden, n_labels=1, n_gnn_layers=4,
-               n_mlp_hidden=256, n_mlp_layers=2, dropout=0.1,
+  def __init__(self, cdfgs, n_hidden, n_mlp_hidden=256,
+               n_lstm_hidden=None, n_labels=1,
+               n_gnn_layers=4, n_mlp_layers=2, dropout=0.1,
                cov_point_aggregate="mean", use_attention=True,
                dtype=tf.float32):
     super().__init__()
