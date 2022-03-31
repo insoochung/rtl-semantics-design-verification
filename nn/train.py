@@ -30,7 +30,7 @@ def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout=0.1,
 
 def compile_model_for_training(
     model, lr, lr_scheme=None, decay_rate=0.90, decay_steps=500,
-    warmup_steps=1000, optimizer=tf.keras.optimizers.Adam):
+    warmup_steps=1000, optimizer=tf.keras.optimizers.Adam, **kwargs):
   lr_schedule = get_lr_schedule(
     lr, lr_scheme, decay_rate, decay_steps, warmup_steps)
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy", "AUC"],
