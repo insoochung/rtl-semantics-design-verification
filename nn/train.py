@@ -6,18 +6,17 @@ import math
 
 import numpy as np
 import tensorflow as tf
-import transformers
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from data.cdfg_datagen import GraphHandler
 from nn.models import Design2VecBase
 from nn.datagen import load_dataset, split_dataset
-
+from nn.utils import get_lr_schedule
 
 def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout=0.1,
                   aggregate="mean", use_attention=False, n_lstm_hidden=None,
-                  **kwargs):
+                  n_lstm_layers=None, **kwargs):
   graph_handler = GraphHandler(output_dir=graph_dir)
   graphs = graph_handler.get_dataset()
   model = Design2VecBase(graphs, n_hidden=n_hidden, n_gnn_layers=n_gnn_layers,
@@ -25,23 +24,15 @@ def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout=0.1,
                          dropout=dropout,
                          cov_point_aggregate=aggregate,
                          use_attention=use_attention,
-                         n_lstm_hidden=n_lstm_hidden)
+                         n_lstm_hidden=n_lstm_hidden,
+                         n_lstm_layers=n_lstm_layers)
   return model
-
-def get_lr_schedule(lr, lr_scheme, decay_rate=0.90, decay_steps=500):
-  print(f"lr_scheme: {lr_scheme} is ignored. "
-    "For now, only warm up then exp decay is used.")
-  def decay_fn(decay_steps):
-    return tf.math.pow(decay_rate, 1 / decay_steps)
-  lr_schedule = transformers.WarmUp(initial_learning_rate=lr,
-      warmup_steps=1000,
-      decay_schedule_fn=lambda x: decay_fn(x))
-  return lr_schedule
 
 def compile_model_for_training(
     model, lr, lr_scheme=None, decay_rate=0.90, decay_steps=500,
-    optimizer=tf.keras.optimizers.Adam):
-  lr_schedule = get_lr_schedule(lr, lr_scheme)
+    warmup_steps=1000, optimizer=tf.keras.optimizers.Adam):
+  lr_schedule = get_lr_schedule(
+    lr, lr_scheme, decay_rate, decay_steps, warmup_steps)
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy", "AUC"],
                 optimizer=optimizer(learning_rate=lr_schedule))
 
@@ -58,14 +49,14 @@ def train(model, dataset, ckpt_dir, ckpt_name="best.ckpt",
     callbacks.append(
       tf.keras.callbacks.ModelCheckpoint(
         ckpt_path, save_format="tf", monitor="val_loss",
-        save_best_only=True, verbose=True))
+        save_best_only=True, verbose=True, save_weights_only=True))
   else:
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-        ckpt_path, save_format="tf", verbose=True))
+        ckpt_path, save_format="tf", verbose=True, save_weights_only=True))
 
   if early_stopping:
     callbacks.append(tf.keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=5, verbose=True))
+        monitor="val_loss", patience=10, verbose=True))
 
   return model.fit(dataset["train"], epochs=epochs,
                    validation_data=dataset["valid"], callbacks=callbacks)
@@ -79,9 +70,9 @@ def evaluate(model, test_dataset, ckpt_dir, ckpt_name="best.ckpt"):
 
 def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
         n_hidden=32, n_gnn_layers=4, n_mlp_hidden=32, n_lstm_hidden=32,
-        dropout=0.1, lr=None, lr_scheme=None, batch_size=32, epochs=50,
-        split_ratio=(0.7, 0.15, 0.15), aggregate="mean", use_attention=False,
-        early_stopping=True):
+        n_lstm_layers=2, dropout=0.1, lr=None, lr_scheme=None, batch_size=32,
+        epochs=50, split_ratio=(0.7, 0.15, 0.15), aggregate="mean",
+        use_attention=False, early_stopping=True):
 
   model_config = {
       "graph_dir": graph_dir, "tf_data_dir": tf_data_dir, "ckpt_dir": ckpt_dir,
@@ -89,7 +80,8 @@ def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
       "n_mlp_hidden": n_mlp_hidden or n_hidden, "epochs": epochs,
       "n_lstm_hidden": n_lstm_hidden or n_hidden, "dropout": dropout,
       "split_ratio": split_ratio, "aggregate": aggregate,
-      "use_attention": use_attention, "early_stopping": early_stopping
+      "use_attention": use_attention, "early_stopping": early_stopping,
+      "n_lstm_layers": n_lstm_layers,
   }
   print(f"Model config: {model_config}")
 
@@ -152,11 +144,13 @@ if __name__ == "__main__":
   parser.add_argument("--n_hidden", type=int, default=32,
                       help="Number of hidden units.")
   parser.add_argument("--n_gnn_layers", type=int, default=4,
-                      help="Number of GCN layers.")
+                      help="Number of GNN layers.")
+  parser.add_argument("--n_lstm_layers", type=int, default=1,
+                      help="Number of LSTM layers.")
   parser.add_argument("--n_mlp_hidden", type=int, default=None,
                       help="Number of hidden units in the MLP.")
   parser.add_argument("--n_lstm_hidden", type=int, default=None,
-                      help="Number of hidden units in the MLP.")
+                      help="Size of hidden dimension in the LSTM.")
   parser.add_argument("--dropout", type=float, default=0.1,
                       help="Dropout rate.")
   parser.add_argument("--lr", type=float, default=0.001, help="Learning rate.")
