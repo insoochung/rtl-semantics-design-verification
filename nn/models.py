@@ -12,7 +12,8 @@ from nn import layers
 class Design2VecBase(Model):
   def __init__(self, cdfgs, n_hidden, n_labels=1, n_gnn_layers=4,
                n_mlp_hidden=256, n_mlp_layers=2, dropout=0.1,
-               cov_point_aggregate="mean", dtype=tf.float32):
+               cov_point_aggregate="mean", use_attention=True,
+               dtype=tf.float32):
     super().__init__()
 
     self.n_hidden = n_hidden
@@ -24,12 +25,13 @@ class Design2VecBase(Model):
     # Prepare left-hand side of the model (design reader side)
     self.cdfg_reader = layers.CdfgReader(
         cdfgs=cdfgs, n_hidden=n_hidden, n_gnn_layers=n_gnn_layers,
-        dropout=dropout, activation="relu", final_activation="softmax",
-        aggregate=cov_point_aggregate, dtype=dtype)
+        dropout=dropout, activation="relu", final_activation="tanh",
+        aggregate=cov_point_aggregate, use_attention=use_attention,
+        dtype=dtype)
     # Prepare right-hand side of the model (test parameter side)
     self.tp_reader = layers.FeedForward(
         n_hidden=n_mlp_hidden, n_out=n_mlp_hidden, n_layers=n_mlp_layers,
-        activation="relu", final_activation="softmax", dropout_at_end=True,
+        activation="relu", final_activation="tanh", dropout_at_end=True,
         dropout=dropout, dtype=dtype)
     # Prepare top that produces final output
     self.top = layers.FeedForward(

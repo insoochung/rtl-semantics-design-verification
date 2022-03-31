@@ -7,3 +7,6 @@
 [submodule "designs/ibex_v1/riscv-isa-sim"]
 	path = designs/ibex_v1/riscv-isa-sim
 	url = https://github.com/lowRISC/riscv-isa-sim.git
+[submodule "third_party/bigbird"]
+	path = third_party/bigbird
+	url = https://github.com/google-research/bigbird.git

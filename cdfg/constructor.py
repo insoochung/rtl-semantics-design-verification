@@ -367,7 +367,11 @@ def construct_seq_block(verible_tree: dict, rtl_content: str,
 def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int = 0):
   """Construct always node and its children nodes."""
   always_node = AlwaysNode(verible_tree, rtl_content, block_depth)
+  assert always_node.type in [
+      "always_ff", "always", "always_comb", "always_latch"], (
+      f"Unknown '{always_node.type}' type.")
   children = always_node.verible_tree["children"]
+  body = None
   if always_node.type in ["always_ff", "always"]:
     if children[1] is None:
       assert False, f"Empty always block found. Possible verible error."
@@ -377,12 +381,8 @@ def construct_always_node(verible_tree: dict, rtl_content: str, block_depth: int
       condition, body = content[0], content[1]
       always_node.condition = get_subtree_text(
           condition, always_node.rtl_content)
-    else:
-      # In case always block does not have condition.
-      body = children[1]
-  else:
-    assert always_node.type in ["always_comb", "always_latch"], (
-        f"Unknown '{always_node.type}' type.")
+  if not body:
+    body = children[1]
 
   if body["tag"] in Tag.BLOCK_STATEMENTS:
     body_nodes = construct_block(

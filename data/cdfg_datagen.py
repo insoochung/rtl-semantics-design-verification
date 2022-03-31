@@ -12,6 +12,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from cdfg.constructor import DesignGraph, Module
 from data.utils import NodeVocab, load_pkl
+from data.utils import CODEBERT_MODEL_NAME
 
 
 class GraphDataset(Dataset):
@@ -35,7 +36,7 @@ class GraphHandler:
     self.output_dir = output_dir or os.path.dirname(design_graph_filepath)
     self.vocab_filepath = os.path.join(self.output_dir, "vocab.graph.yaml")
     self.dataset_path = os.path.join(self.output_dir, "dataset.graphs.npy")
-    self.s2v_model_name = "microsoft/codebert-base-mlm"
+    self.s2v_model_name = CODEBERT_MODEL_NAME
     self.design_graph = None
     self.vocab = None
     self.graphs = None
