@@ -16,7 +16,8 @@ DEFAULT_SEARCH_RANGE = { # Common hparams
   "n_mlp_hidden": [32, 64, 128, 256, 512],
   "n_lstm_hidden": [32, 64, 128, 256, 512],
   "n_gnn_layers": [2, 4, 8],
-  "n_lstm_layers": [2, 4, 8],
+  "n_lstm_layers": [1, 2],
+  "n_mlp_layers": [2, 4, 8],
   "lr": [0.0005, 0.001, 0.002],
   "decay_rate": [0.80, 0.90, 0.95],
   "warmup_steps": [1, 500, 1000, 2000, 4000],
@@ -94,9 +95,8 @@ if __name__ == "__main__":
   parser.add_argument("--use_attention", action="store_true", default=False,
                       help="Whether to use attention in the design reader.")
 
-  hparams_keys = list(DEFAULT_SEARCH_RANGE)
-  for key in hparams_keys:
-    parser.add_argument(f"--{key}", default=None)
+  for key, l in DEFAULT_SEARCH_RANGE.items():
+    parser.add_argument(f"--{key}", type=type(l[0]), default=None)
   args = parser.parse_args()
 
   print(f"Received arguments: {args}")
@@ -104,7 +104,8 @@ if __name__ == "__main__":
   tf.random.set_seed(args.seed)
   args_dict = vars(args)
   override_params = {}
-  for key in hparams_keys + ["aggregate", "use_attention", "graph_dir"]:
+  for key in list(DEFAULT_SEARCH_RANGE.keys()) + [
+    "aggregate", "use_attention", "graph_dir"]:
     if args_dict[key] is not None:
       override_params[key] = args_dict[key]
   args_dict["override_params"] = override_params
