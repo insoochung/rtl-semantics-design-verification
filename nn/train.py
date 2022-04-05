@@ -14,6 +14,7 @@ from nn.models import Design2VecBase
 from nn.datagen import load_dataset, split_dataset
 from nn.utils import get_lr_schedule
 
+
 def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout=0.1,
                   aggregate="mean", use_attention=False, n_lstm_hidden=None,
                   n_lstm_layers=None, **kwargs):
@@ -28,13 +29,15 @@ def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout=0.1,
                          n_lstm_layers=n_lstm_layers)
   return model
 
+
 def compile_model_for_training(
-    model, lr, lr_scheme=None, decay_rate=0.90, decay_steps=500,
-    warmup_steps=1000, optimizer=tf.keras.optimizers.Adam, **kwargs):
+        model, lr, lr_scheme=None, decay_rate=0.90, decay_steps=500,
+        warmup_steps=1000, optimizer=tf.keras.optimizers.Adam, **kwargs):
   lr_schedule = get_lr_schedule(
-    lr, lr_scheme, decay_rate, decay_steps, warmup_steps)
+      lr, lr_scheme, decay_rate, decay_steps, warmup_steps)
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy", "AUC"],
                 optimizer=optimizer(learning_rate=lr_schedule))
+
 
 def train(model, dataset, ckpt_dir, ckpt_name="best.ckpt",
           epochs=10, early_stopping=True):
@@ -47,9 +50,9 @@ def train(model, dataset, ckpt_dir, ckpt_name="best.ckpt",
     # reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
     #     monitor="val_loss", factor=0.5, patience=3, verbose=True)
     callbacks.append(
-      tf.keras.callbacks.ModelCheckpoint(
-        ckpt_path, save_format="tf", monitor="val_loss",
-        save_best_only=True, verbose=True, save_weights_only=True))
+        tf.keras.callbacks.ModelCheckpoint(
+            ckpt_path, save_format="tf", monitor="val_loss",
+            save_best_only=True, verbose=True, save_weights_only=True))
   else:
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(
         ckpt_path, save_format="tf", verbose=True, save_weights_only=True))

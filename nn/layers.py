@@ -173,8 +173,9 @@ class CdfgReader(tf.keras.layers.Layer):
     else:  # When not using attention, we use a single layer for aggregating
       if aggregate == "lstm":
         cells = [
-          tf.keras.layers.LSTMCell(n_lstm_hidden, dropout=dropout, dtype=dtype)
-          for _ in range(n_lstm_layers)]
+            tf.keras.layers.LSTMCell(
+                n_lstm_hidden, dropout=dropout, dtype=dtype)
+            for _ in range(n_lstm_layers)]
         self.aggregate_layer = tf.keras.layers.RNN(
             tf.keras.layers.StackedRNNCells(cells))
 
