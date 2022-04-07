@@ -134,8 +134,9 @@ class AttentionModule(tf.keras.layers.Layer):
 
 class CdfgReader(tf.keras.layers.Layer):
   def __init__(self, cdfgs, n_hidden, n_gnn_layers, dropout, activation="relu",
-               final_activation="tanh", aggregate="mean",
-               use_attention=False, max_n_nodes=4096, dtype=tf.float32):
+               final_activation="tanh", aggregate="mean", n_lstm_hidden=256,
+               n_lstm_layers=2, use_attention=False, max_n_nodes=4096,
+               dtype=tf.float32):
     super().__init__()
     assert use_attention or aggregate in ["mean", "lstm"]
     self.n_hidden = n_hidden
@@ -164,15 +165,19 @@ class CdfgReader(tf.keras.layers.Layer):
     if self.use_attention:
       self.sent_vec_bottleneck = FeedForward(
           1, n_hidden, n_out=n_hidden, dropout=dropout, dropout_at_end=True,
-          final_activation="tanh")
+          final_activation=final_activation)
       self.att_module = AttentionModule(n_hidden, max_n_nodes, dropout, dtype)
       self.att_pooler = FeedForward(1, n_hidden, n_out=n_hidden,
                                     dropout=dropout, dropout_at_end=True,
-                                    final_activation="tanh")
+                                    final_activation=final_activation)
     else:  # When not using attention, we use a single layer for aggregating
       if aggregate == "lstm":
-        self.aggregate_layer = tf.keras.layers.LSTM(
-            n_hidden, dropout=dropout, dtype=dtype)
+        cells = [
+            tf.keras.layers.LSTMCell(
+                n_lstm_hidden, dropout=dropout, dtype=dtype)
+            for _ in range(n_lstm_layers)]
+        self.aggregate_layer = tf.keras.layers.RNN(
+            tf.keras.layers.StackedRNNCells(cells))
 
   def place_special_tokens(self, x):
     # CLS is prepended, and SEP is added in between modules.
