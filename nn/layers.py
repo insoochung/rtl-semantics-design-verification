@@ -212,8 +212,8 @@ class CdfgReader(tf.keras.layers.Layer):
     # Prepare inputs
     # cdfg_xs (batch_size, num_nodes, num_features)
     # cdfg_as: (batch_size, num_nodes, num_nodes)
-    cdfg_xs = tf.gather_nd(self.cdfg_xs, inputs["graph"])
-    cdfg_as = tf.gather_nd(self.cdfg_as, inputs["graph"])
+    cdfg_xs = tf.gather(self.cdfg_xs, inputs["graph"])
+    cdfg_as = tf.gather(self.cdfg_as, inputs["graph"])
 
     # x: (batch_size, num_nodes, n_hidden)
     x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
