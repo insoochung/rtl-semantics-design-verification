@@ -24,6 +24,23 @@ def preprocess_cdfgs(cdfgs):
   return cdfg_xs, cdfg_as
 
 
+def add_cls_tok_to_cdfgs(cdfg_xs, cdfg_as, cls_tok):
+  if len(cls_tok.shape) != 2:
+    assert len(cls_tok.shape) == 1
+    cls_tok = tf.expand_dims(cls_tok, axis=0)
+  assert len(cdfg_xs.shape) == 2 and len(cdfg_as.shape) == 2, (
+      f"CDFGs must be 2D or in single mode, provided shapes are, "
+      f"XS: {cdfg_xs.shape}, AS: {cdfg_as.shape}")
+  _xs = tf.concat([cls_tok, cdfg_xs], axis=0)
+  _as = tf.sparse.to_dense(cdfg_as)
+  # Update adjancent matrix for CLS token.
+  # Note: CLS token acts as an isolated node in the graph.
+  _as = tf.concat([tf.zeros(shape=(1, _as.shape[1])), _as], axis=0)  # Add row
+  _as = tf.concat([tf.zeros(shape=(_as.shape[0], 1)), _as], axis=1)  # Add col
+
+  return _xs, _as
+
+
 def convert_batch_to_single_mode(cdfg_xs, cdfg_as):
   # Check rank of given input
   assert len(cdfg_xs.shape) == 3 and len(cdfg_as.shape) == 3
@@ -98,10 +115,10 @@ class AttentionModule(tf.keras.layers.Layer):
     super().__init__()
 
     var_init = tf.keras.initializers.glorot_uniform()
-    self.cls_tok = tf.Variable(
-        var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
-    self.sep_tok = tf.Variable(
-        var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
+    # self.cls_tok = tf.Variable(
+    #     var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
+    # self.sep_tok = tf.Variable(
+    #     var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
     self.pos_embed = tf.Variable(
         var_init(shape=[max_n_nodes, n_hidden]), trainable=True, dtype=dtype)
 
@@ -144,10 +161,16 @@ class CdfgReader(tf.keras.layers.Layer):
     self.aggregate = aggregate
     self.use_attention = use_attention
 
-    self.cdfg_xs, self.cdfg_as = preprocess_cdfgs(cdfgs)
+    self.batch_xs, self.batch_as = preprocess_cdfgs(cdfgs)
+    self.batch_xs = tf.cast(self.batch_xs, dtype=dtype)
+    self.batch_as = tf.cast(self.batch_as, dtype=dtype)
     if self.use_attention:
-      ret = convert_batch_to_single_mode(self.cdfg_xs, self.cdfg_as)
-      self.cdfg_xs, self.cdfg_as, self.cdfg_lens, self.cdfg_offsets = ret
+      var_init = tf.keras.initializers.glorot_uniform()
+      self.cls_tok = tf.Variable(
+          var_init(shape=[self.batch_xs.shape[-1]]), trainable=True,
+          dtype=dtype, name="CLS")
+      (self.single_xs, self.single_as, self.cdfg_lens, self.cdfg_offsets
+       ) = convert_batch_to_single_mode(self.batch_xs, self.batch_as)
 
     self.gnn_input_layer = Dense(n_hidden, activation=activation,
                                  dtype=dtype)
@@ -166,6 +189,9 @@ class CdfgReader(tf.keras.layers.Layer):
       self.sent_vec_bottleneck = FeedForward(
           1, n_att_hidden, n_out=n_att_hidden, dropout=dropout,
           dropout_at_end=True, final_activation=final_activation)
+      self.node_embed_bottleneck = FeedForward(
+          1, n_hidden, n_out=n_att_hidden, dropout=dropout,
+          dropout_at_end=True, final_activation=final_activation)
       self.att_module = AttentionModule(n_att_hidden, max_n_nodes, dropout,
                                         dtype)
       self.att_pooler = FeedForward(1, n_att_hidden, n_out=n_hidden,
@@ -182,8 +208,8 @@ class CdfgReader(tf.keras.layers.Layer):
 
   def place_special_tokens(self, x):
     # CLS is prepended, and SEP is added in between modules.
-    sep_vec = tf.expand_dims(self.att_module.sep_tok, 0)
-    cls_vec = tf.expand_dims(self.att_module.cls_tok, 0)
+    sep_vec = tf.expand_dims(self.sep_tok, 0)
+    cls_vec = tf.expand_dims(self.cls_tok, 0)
 
     x_per_graph = [cls_vec]  # Add CLS token at position 0
     for i, offset in enumerate(self.cdfg_offsets):
@@ -213,8 +239,8 @@ class CdfgReader(tf.keras.layers.Layer):
     # Prepare inputs
     # cdfg_xs (batch_size, num_nodes, num_features)
     # cdfg_as: (batch_size, num_nodes, num_nodes)
-    cdfg_xs = tf.gather_nd(self.cdfg_xs, inputs["graph"])
-    cdfg_as = tf.gather_nd(self.cdfg_as, inputs["graph"])
+    cdfg_xs = tf.gather_nd(self.batch_xs, inputs["graph"])
+    cdfg_as = tf.gather_nd(self.batch_as, inputs["graph"])
 
     # x: (batch_size, num_nodes, n_hidden)
     x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
@@ -237,10 +263,10 @@ class CdfgReader(tf.keras.layers.Layer):
     # cdfg_xs: (num_nodes, num_features)
     # cdfg_as: (num_nodes, num_nodes)
     # x: (num_nodes, n_hidden) <= all node embeddings
-    x = self.gnn_stack_forward(self.cdfg_xs, self.cdfg_as)
-    # CLS is prepended, and SEP is added in between modules.
-    # x: (num_nodes + num_special_toks, n_hidden)
-    x = self.place_special_tokens(x)
+    cdfg_xs, cdfg_as = add_cls_tok_to_cdfgs(
+        self.single_xs, self.single_as, self.cls_tok)
+    x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
+    x = self.node_embed_bottleneck(x)  # (batch_size, num_nodes, n_att_hidden)
 
     # y: (batch_size, sent_vec_hidden) <= CP information is fed
     y = inputs["cp_sent_vecs"]
