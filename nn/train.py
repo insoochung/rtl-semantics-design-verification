@@ -15,13 +15,15 @@ from nn.datagen import load_dataset, split_dataset
 from nn.utils import get_lr_schedule
 
 
-def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden, dropout=0.1,
-                  aggregate="mean", use_attention=False, n_lstm_hidden=None,
-                  n_lstm_layers=None, **kwargs):
+def get_d2v_model(graph_dir, n_hidden, n_gnn_layers, n_mlp_hidden,
+                  n_mlp_layers=2, dropout=0.1, n_lstm_hidden=None,
+                  n_lstm_layers=None, aggregate="mean", use_attention=False,
+                  **kwargs):
   graph_handler = GraphHandler(output_dir=graph_dir)
   graphs = graph_handler.get_dataset()
   model = Design2VecBase(graphs, n_hidden=n_hidden, n_gnn_layers=n_gnn_layers,
                          n_mlp_hidden=n_mlp_hidden,
+                         n_mlp_layers=n_mlp_layers,
                          dropout=dropout,
                          cov_point_aggregate=aggregate,
                          use_attention=use_attention,
@@ -72,19 +74,25 @@ def evaluate(model, test_dataset, ckpt_dir, ckpt_name="best.ckpt"):
 
 
 def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
-        n_hidden=32, n_gnn_layers=4, n_mlp_hidden=32, n_lstm_hidden=32,
-        n_lstm_layers=2, dropout=0.1, lr=None, lr_scheme=None, batch_size=32,
-        epochs=50, split_ratio=(0.7, 0.15, 0.15), aggregate="mean",
-        use_attention=False, early_stopping=True):
+        n_hidden=32, n_gnn_layers=4, n_mlp_hidden=32, n_mlp_layers=2,
+        n_lstm_hidden=32, n_lstm_layers=2, n_att_hidden=32,
+        dropout=0.1, lr=None, lr_scheme=None, batch_size=32, epochs=50,
+        split_ratio=(0.7, 0.15, 0.15), aggregate="mean", use_attention=False,
+        early_stopping=True, decay_rate=0.9, decay_steps=500,
+        warmup_steps=1000, pretrain=False):
 
   model_config = {
       "graph_dir": graph_dir, "tf_data_dir": tf_data_dir, "ckpt_dir": ckpt_dir,
       "ckpt_name": ckpt_name, "n_hidden": n_hidden, "n_gnn_layers": n_gnn_layers,
-      "n_mlp_hidden": n_mlp_hidden or n_hidden, "epochs": epochs,
+      "n_mlp_hidden": n_mlp_hidden or n_hidden,
+      "n_mlp_layers": n_mlp_layers, "epochs": epochs,
       "n_lstm_hidden": n_lstm_hidden or n_hidden, "dropout": dropout,
       "split_ratio": split_ratio, "aggregate": aggregate,
       "use_attention": use_attention, "early_stopping": early_stopping,
-      "n_lstm_layers": n_lstm_layers,
+      "n_lstm_layers": n_lstm_layers, "n_att_hidden": n_att_hidden or n_hidden,
+      "lr": lr, "lr_scheme": lr_scheme, "batch_size": batch_size,
+      "warmup_steps": warmup_steps, "decay_rate": decay_rate,
+      "decay_steps": decay_steps,
   }
   print(f"Model config: {model_config}")
 
@@ -98,7 +106,8 @@ def run(graph_dir, tf_data_dir, ckpt_dir=None, ckpt_name="best.ckpt",
 
   # Train model
   model = get_d2v_model(**model_config)
-  compile_model_for_training(model, lr, lr_scheme)
+  compile_model_for_training(model, lr, lr_scheme, decay_rate, decay_steps,
+                             warmup_steps)
   history = train(model, dataset, ckpt_dir, ckpt_name, epochs, early_stopping)
 
   # Evaluate model
@@ -120,6 +129,7 @@ def run_with_seed(seed, *args, append_seed_to_ckpt_dir=False, **kwargs):
   if append_seed_to_ckpt_dir:
     seed_str = f"seed-{seed}"
     kwargs["ckpt_dir"] = os.path.join(kwargs["ckpt_dir"], seed_str)
+
   m = run(*args, **kwargs)
   m["seed"] = seed
   print(f"Train info: {m}")
@@ -146,19 +156,29 @@ if __name__ == "__main__":
                       help="Name of the checkpoint.")
   parser.add_argument("--n_hidden", type=int, default=32,
                       help="Number of hidden units.")
-  parser.add_argument("--n_gnn_layers", type=int, default=4,
+  parser.add_argument("--n_gnn_layers", type=int, default=8,
                       help="Number of GNN layers.")
   parser.add_argument("--n_lstm_layers", type=int, default=1,
                       help="Number of LSTM layers.")
-  parser.add_argument("--n_mlp_hidden", type=int, default=None,
+  parser.add_argument("--n_mlp_hidden", type=int, default=512,
                       help="Number of hidden units in the MLP.")
+  parser.add_argument("--n_mlp_layers", type=int, default=2,
+                      help="Number of hidden layers in the MLP.")
   parser.add_argument("--n_lstm_hidden", type=int, default=None,
                       help="Size of hidden dimension in the LSTM.")
+  parser.add_argument("--n_att_hidden", type=int, default=None,
+                      help="Number of hidden units.")
   parser.add_argument("--dropout", type=float, default=0.1,
                       help="Dropout rate.")
   parser.add_argument("--lr", type=float, default=0.001, help="Learning rate.")
   parser.add_argument("--lr_scheme", type=str, default="linear_decay",
                       help="Learning rate scheme.")
+  parser.add_argument("--decay_rate", type=float, default=0.9,
+                      help="Learning rate decay rate.")
+  parser.add_argument("--decay_steps", type=int, default=500,
+                      help="Learning rate decay steps.")
+  parser.add_argument("--warmup_steps", type=int, default=1000,
+                      help="Learning rate warm up steps.")
   parser.add_argument("--batch_size", type=int, default=64, help="Batch size.")
   parser.add_argument("--epochs", type=int, default=50,
                       help="Number of epochs to train.")
@@ -174,6 +194,8 @@ if __name__ == "__main__":
   parser.add_argument("--no_early_stopping", dest="early_stopping",
                       action="store_false", default=True,
                       help="Whether to use attention in the design reader.")
+  parser.add_argument("--pretrain", action="store_true", default=False,
+                      help="Whether to pretrain the CDFG reader only")
 
   args = parser.parse_args()
   print(f"Received arguments: {args}")

@@ -136,7 +136,7 @@ class CdfgReader(tf.keras.layers.Layer):
   def __init__(self, cdfgs, n_hidden, n_gnn_layers, dropout, activation="relu",
                final_activation="tanh", aggregate="mean", n_lstm_hidden=256,
                n_lstm_layers=2, use_attention=False, max_n_nodes=4096,
-               dtype=tf.float32):
+               n_att_hidden=None, dtype=tf.float32):
     super().__init__()
     assert use_attention or aggregate in ["mean", "lstm"]
     self.n_hidden = n_hidden
@@ -164,10 +164,11 @@ class CdfgReader(tf.keras.layers.Layer):
 
     if self.use_attention:
       self.sent_vec_bottleneck = FeedForward(
-          1, n_hidden, n_out=n_hidden, dropout=dropout, dropout_at_end=True,
-          final_activation=final_activation)
-      self.att_module = AttentionModule(n_hidden, max_n_nodes, dropout, dtype)
-      self.att_pooler = FeedForward(1, n_hidden, n_out=n_hidden,
+          1, n_att_hidden, n_out=n_att_hidden, dropout=dropout,
+          dropout_at_end=True, final_activation=final_activation)
+      self.att_module = AttentionModule(n_att_hidden, max_n_nodes, dropout,
+                                        dtype)
+      self.att_pooler = FeedForward(1, n_att_hidden, n_out=n_hidden,
                                     dropout=dropout, dropout_at_end=True,
                                     final_activation=final_activation)
     else:  # When not using attention, we use a single layer for aggregating
