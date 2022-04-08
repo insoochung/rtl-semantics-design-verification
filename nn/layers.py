@@ -8,7 +8,7 @@ from spektral.layers import GCNConv
 sys.path.append(os.path.join(
     os.path.dirname(__file__), "../third_party/bigbird"))
 from bigbird.core import flags as bigbird_flags
-from bigbird.core.decoder import DecoderStack as BigBirdDecoderStack
+from bigbird.core.encoder import EncoderStack as BigBirdEncoderStack
 
 
 def preprocess_cdfgs(cdfgs):
@@ -39,6 +39,15 @@ def add_cls_tok_to_cdfgs(cdfg_xs, cdfg_as, cls_tok):
   _as = tf.concat([tf.zeros(shape=(_as.shape[0], 1)), _as], axis=1)  # Add col
 
   return _xs, _as
+
+
+def add_padding(tensor, min_size, rank=2, axis=0):
+  # Increment the dimension of an axis by 1 by padding with zeros
+  assert len(tensor.shape) == rank
+  pad_size = min_size - tf.shape(tensor)[axis]
+  paddings = [[0, 0] for _ in range(rank)]
+  paddings[axis][1] = pad_size
+  return tf.pad(tensor, paddings)
 
 
 def convert_batch_to_single_mode(cdfg_xs, cdfg_as):
@@ -113,12 +122,9 @@ class AttentionModule(tf.keras.layers.Layer):
   def __init__(self, n_hidden, max_n_nodes=4096, dropout=0.1,
                dtype=tf.float32):
     super().__init__()
+    self.max_n_nodes = max_n_nodes
 
     var_init = tf.keras.initializers.glorot_uniform()
-    # self.cls_tok = tf.Variable(
-    #     var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
-    # self.sep_tok = tf.Variable(
-    #     var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
     self.pos_embed = tf.Variable(
         var_init(shape=[max_n_nodes, n_hidden]), trainable=True, dtype=dtype)
 
@@ -131,21 +137,24 @@ class AttentionModule(tf.keras.layers.Layer):
     params["hidden_size"] = n_hidden
     params["intermediate_size"] = n_hidden * 4
     params["max_encoder_length"] = max_n_nodes
-    # To name bigbird module to encoder
-    params["couple_encoder_decoder"] = False
-    self.att_block = BigBirdDecoderStack(params)
-    self.self_attention_mask = tf.ones(shape=(1, 1, 1, 1), dtype=dtype)
-    self.encoder_mask = tf.ones(shape=(1, max_n_nodes), dtype=dtype)
+    self.att_block = BigBirdEncoderStack(params)
+    self.encoder_input_mask = tf.ones(shape=(1, max_n_nodes), dtype=dtype)
 
   def call(self, inputs):
-    x = inputs["x"]
-    y = inputs["y"]
+    x = inputs
     x += tf.expand_dims(self.pos_embed[:x.shape[1], :], 0)
-    encoder_mask = self.encoder_mask[:, :x.shape[1]]
-    x = self.att_block(encoder_outputs=x, decoder_inputs=y,
-                       self_attention_mask=self.self_attention_mask,
-                       encoder_mask=encoder_mask,
+    x_mask = self.encoder_input_mask[:, :x.shape[1]]
+    x_mask = tf.tile(x_mask, multiples=[tf.shape(x)[0], 1])
+
+    # Pad attention block inputs to self.max_n_nodes
+    x = add_padding(x, min_size=self.max_n_nodes,
+                    rank=3, axis=1)
+    x_mask = add_padding(x_mask, min_size=self.max_n_nodes,
+                         rank=2, axis=1)
+
+    x = self.att_block(x, x_mask,
                        training=bool(tf.keras.backend.learning_phase()))
+    x = x[:, :inputs.shape[1], :]
     return x
 
 
@@ -194,7 +203,7 @@ class CdfgReader(tf.keras.layers.Layer):
           dropout_at_end=True, final_activation=final_activation)
       self.att_module = AttentionModule(n_att_hidden, max_n_nodes, dropout,
                                         dtype)
-      self.att_pooler = FeedForward(1, n_att_hidden, n_out=n_hidden,
+      self.att_pooler = FeedForward(2, n_att_hidden, n_out=n_hidden,
                                     dropout=dropout, dropout_at_end=True,
                                     final_activation=final_activation)
     else:  # When not using attention, we use a single layer for aggregating
@@ -270,16 +279,18 @@ class CdfgReader(tf.keras.layers.Layer):
 
     # y: (batch_size, sent_vec_hidden) <= CP information is fed
     y = inputs["cp_sent_vecs"]
-    y = tf.expand_dims(y, axis=1)  # (batch_size, 1, sent_vec_hidden)
-    y = self.sent_vec_bottleneck(y)  # (batch_size, 1, n_hidden)
+    # y = tf.expand_dims(y, axis=1)  # (batch_size, 1, sent_vec_hidden)
+    y = self.sent_vec_bottleneck(y)  # (batch_size, n_att_module)
 
     # Add dimension to x to match size with y
-    # x: (batch_size, num_nodes + num_special_toks, n_hidden)
+    # x: (batch_size, num_nodes, n_hidden)
     x = tf.expand_dims(x, axis=0)
     x = tf.tile(x, multiples=[tf.shape(y)[0], 1, 1])
 
-    cp_embed = self.att_module({"x": x, "y": y})  # (batch_size, 1, n_hidden)
-    cp_embed = cp_embed[:, 0, :]  # (batch_size, n_hidden)
+    # Take CLS token position output as graph vector
+    cp_embed = self.att_module(x)  # (batch_size, num_nodes, n_att_module)
+    cp_embed = cp_embed[:, 0, :]  # (batch_size, n_att_module)
+    cp_embed = tf.concat([cp_embed, y], axis=-1)  # (batch_size, n_hidden)
     cp_embed = self.att_pooler(cp_embed)  # (batch_size, n_hidden)
     return cp_embed
 
