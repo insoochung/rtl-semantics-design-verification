@@ -11,10 +11,10 @@ from nn import layers
 
 class Design2VecBase(Model):
   def __init__(self, cdfgs, n_hidden, n_mlp_hidden=256,
-               n_lstm_hidden=None, n_labels=1, n_att_hidden=64,
+               n_lstm_hidden=None, n_labels=1,  # n_att_hidden=64, n_att_layers=2,
                n_gnn_layers=4, n_mlp_layers=2, n_lstm_layers=2,
                dropout=0.1, cov_point_aggregate="mean", use_attention=True,
-               dtype=tf.float32):
+               dtype=tf.float32, **kwargs):
     super().__init__()
 
     self.n_hidden = n_hidden
@@ -29,7 +29,8 @@ class Design2VecBase(Model):
         dropout=dropout, activation="relu", final_activation="tanh",
         aggregate=cov_point_aggregate, use_attention=use_attention,
         n_lstm_hidden=n_lstm_hidden, n_lstm_layers=n_lstm_layers,
-        n_att_hidden=n_att_hidden, dtype=dtype)
+        #n_att_hidden=n_att_hidden, n_att_layers=n_att_layers,
+        dtype=dtype)
     # Prepare right-hand side of the model (test parameter side)
     self.tp_reader = layers.FeedForward(
         n_hidden=n_mlp_hidden, n_out=n_mlp_hidden, n_layers=n_mlp_layers,
