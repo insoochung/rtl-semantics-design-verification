@@ -257,6 +257,11 @@ class CdfgReader(tf.keras.layers.Layer):
     return cp_embed
 
   def call(self, inputs):
+    # Make this work with generated dataset with legacy datagen code.
+    for key in ["graph", "coverpoint"]:
+      if len(inputs[key].shape) == 1:
+        inputs[key] = tf.expand_dims(inputs[key], axis=-1)
+
     if self.use_attention:
       return self.attention_forward(inputs)
     else:
