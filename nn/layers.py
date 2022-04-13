@@ -83,6 +83,10 @@ class CdfgReader(tf.keras.layers.Layer):
   def call(self, inputs):
     # cdfg_xs (batch_size, num_nodes, num_features)
     # cdfg_as: (batch_size, num_nodes, num_nodes)
+    if len(inputs["graph"].shape) == 1:
+      inputs["graph"] = tf.expand_dims(inputs["graph"], axis=-1)
+    if len(inputs["coverpoint"].shape) == 1:
+      inputs["coverpoint"] = tf.expand_dims(inputs["coverpoint"], axis=-1)
     cdfg_xs = tf.gather_nd(self.cdfg_xs, inputs["graph"])
     cdfg_as = tf.gather_nd(self.cdfg_as, inputs["graph"])
 

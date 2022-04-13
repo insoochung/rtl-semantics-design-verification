@@ -325,6 +325,27 @@ class TestParameterVocab:
     self.tokens = vocab
     self.meta = test_parameters
 
+
+  def de_normalize(self, tp):
+    test_parameters_vec = {}
+    for token in self.tokens:
+      key = token["key"]
+      idx = token["idx"]
+      if "name" in key:
+        begin, end = key.split("+")
+        test_parameters_vec[begin] = end
+        continue 
+      if token["is_one_hot"]:
+        assert token["type"] == "choice"
+        key, one_hot_val = key.split("+")
+        test_parameters_vec[key] = int(tp[idx] == one_hot_val)
+        continue
+      tp_elem = round(tp[idx])
+      if token["type"] == "int":
+        tp_elem = round(tp_elem * (token["max_val"] - token["min_val"] + 1e-7) + token["min_val"])
+      test_parameters_vec[key] = tp_elem
+    return test_parameters_vec
+  
   def vectorize_test(self, test_filepath: str, normalize=True):
     with codecs.open(test_filepath, "rb") as f:
       test = yaml.load(f, Loader=yaml.FullLoader)
@@ -343,6 +364,8 @@ class TestParameterVocab:
     test_parameters_vec = []
     for token in self.tokens:
       key = token["key"]
+      if key == "stream_name_2":
+        assert 0
       if token["is_one_hot"]:
         assert token["type"] == "choice"
         key, one_hot_val = key.split("+")
