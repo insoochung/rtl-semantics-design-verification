@@ -88,8 +88,7 @@ def convert_batch_to_single_mode(cdfg_xs, cdfg_as):
 
 class FeedForward(tf.keras.layers.Layer):
   def __init__(self, n_layers, n_hidden, n_out, dropout, dropout_at_end=False,
-               activation="relu", final_activation="tanh",
-               dtype=tf.float32):
+               activation="relu", final_activation="tanh", params=None):
     super(FeedForward, self).__init__()
     self.n_layers = n_layers
     self.n_hidden = n_hidden
@@ -100,10 +99,10 @@ class FeedForward(tf.keras.layers.Layer):
     self.dropout_layers = []
     for _ in range(n_layers - 1):
       self.dense_layers.append(
-          Dense(n_hidden, activation=activation, dtype=dtype))
+          Dense(n_hidden, activation=activation))
       self.dropout_layers.append(Dropout(dropout))
     self.dense_layers.append(
-        Dense(n_out, activation=final_activation, dtype=dtype))
+        Dense(n_out, activation=final_activation))
     if dropout_at_end:
       self.dropout_layers.append(Dropout(dropout))
 
@@ -121,10 +120,7 @@ class FeedForward(tf.keras.layers.Layer):
 class CdfgReader(tf.keras.layers.Layer):
   def __init__(self, cdfgs, n_hidden, n_gnn_layers, dropout, activation="relu",
                final_activation="tanh", aggregate="mean", n_lstm_hidden=256,
-               n_lstm_layers=2, use_attention=False, max_n_nodes=4096,
-               att_configs={"n_hidden": 768},
-               #  n_att_hidden=None,
-               dtype=tf.float32, **kwargs):
+               n_lstm_layers=2, use_attention=False, params=None):
     super().__init__()
     assert use_attention or aggregate in ["mean", "lstm"]
     self.n_hidden = n_hidden
@@ -133,67 +129,51 @@ class CdfgReader(tf.keras.layers.Layer):
     self.use_attention = use_attention
 
     self.batch_xs, self.batch_as = preprocess_cdfgs(cdfgs)
-    self.batch_xs = tf.cast(self.batch_xs, dtype=dtype)
-    self.batch_as = tf.cast(self.batch_as, dtype=dtype)
+    self.batch_xs = tf.cast(self.batch_xs, dtype=tf.float32)
+    self.batch_as = tf.cast(self.batch_as, dtype=tf.float32)
     if self.use_attention:
-      var_init = tf.keras.initializers.glorot_uniform()
-      self.cls_tok = tf.Variable(
-          var_init(shape=[self.batch_xs.shape[-1]]), trainable=True,
-          dtype=dtype, name="CLS")
       (self.single_xs, self.single_as, self.cdfg_lens, self.cdfg_offsets
        ) = convert_batch_to_single_mode(self.batch_xs, self.batch_as)
 
-    self.gnn_input_layer = Dense(n_hidden, activation=activation,
-                                 dtype=dtype)
+    self.gnn_input_layer = Dense(n_hidden, activation=activation)
     self.gnn_layers = []
     self.gnn_dropouts = []
     self.gnn_input_dropout = Dropout(dropout)
     for _ in range(n_gnn_layers - 1):
       self.gnn_layers.append(
-          GCNConv(n_hidden, activation=activation, dtype=dtype))
+          GCNConv(n_hidden, activation=activation))
       self.gnn_dropouts.append(Dropout(dropout))
     self.gnn_layers.append(
-        GCNConv(n_hidden, activation=final_activation, dtype=dtype))
+        GCNConv(n_hidden, activation=final_activation))
     self.gnn_dropouts.append(Dropout(dropout))
 
     if self.use_attention:
-      n_att_hidden = att_configs["n_hidden"]
+      n_att_hidden = params["n_att_hidden"]
+      n_att_layers = params["n_att_layers"]
+      max_n_nodes = params["max_n_nodes"]
+      pretrain_dir = params["pretrain_dir"]
       self.sent_vec_bottleneck = FeedForward(
           1, n_att_hidden, n_out=n_att_hidden, dropout=dropout,
-          dropout_at_end=True, final_activation=final_activation)
+          dropout_at_end=True, final_activation=final_activation,
+          params=params)
       self.node_embed_bottleneck = FeedForward(
           1, n_hidden, n_out=n_att_hidden, dropout=dropout,
-          dropout_at_end=True, final_activation=final_activation)
+          dropout_at_end=True, final_activation=final_activation,
+          params=params)
       self.att_module = AttentionModule(
-          att_configs["n_hidden"], max_n_nodes, dtype=dtype)
+          n_att_hidden, n_att_layers, max_n_nodes, pretrain_dir, params)
       self.att_pooler = FeedForward(1, n_att_hidden, n_out=n_hidden,
                                     dropout=dropout, dropout_at_end=True,
-                                    final_activation=final_activation)
+                                    final_activation=final_activation,
+                                    params=params)
     else:  # When not using attention, we use a single layer for aggregating
       if aggregate == "lstm":
         cells = [
             tf.keras.layers.LSTMCell(
-                n_lstm_hidden, dropout=dropout, dtype=dtype)
+                n_lstm_hidden, dropout=dropout)
             for _ in range(n_lstm_layers)]
         self.aggregate_layer = tf.keras.layers.RNN(
             tf.keras.layers.StackedRNNCells(cells))
-
-  # def place_special_tokens(self, x):
-  #   # CLS is prepended, and SEP is added in between modules.
-  #   sep_vec = tf.expand_dims(self.sep_tok, 0)
-  #   cls_vec = tf.expand_dims(self.cls_tok, 0)
-
-  #   x_per_graph = [cls_vec]  # Add CLS token at position 0
-  #   for i, offset in enumerate(self.cdfg_offsets):
-  #     start = offset
-  #     end = offset + self.cdfg_lens[i]
-  #     x_per_graph.append(x[start:end])
-  #     x_per_graph.append(sep_vec)  # Add separator token in between
-  #   x_per_graph = x_per_graph[:-1]  # Remove last separator token
-
-  #   # x: (num_nodes + num_special tokens, n_hidden)
-  #   x = tf.concat(x_per_graph, axis=0)
-  #   return x
 
   def gnn_stack_forward(self, cdfg_xs, cdfg_as):
     # GNN: input layer -> n - 1 GNN layers (relu) -> final GNN layer (tanh)
@@ -235,9 +215,6 @@ class CdfgReader(tf.keras.layers.Layer):
     # cdfg_xs: (num_nodes, num_features)
     # cdfg_as: (num_nodes, num_nodes)
     # x: (num_nodes, n_hidden) <= all node embeddings
-    # cdfg_xs, cdfg_as = add_cls_tok_to_cdfgs(
-    #     self.single_xs, self.single_as, self.cls_tok
-    #     )
     cdfg_xs, cdfg_as = self.single_xs, self.single_as
     x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
     x = self.node_embed_bottleneck(x)  # (batch_size, num_nodes, n_att_hidden)
