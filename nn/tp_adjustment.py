@@ -37,7 +37,7 @@ def adjust_tp(graph_dir, ckpt_dir, test_parameters, tp_cov_dir, cp_idx):
   vocab_files = glob(os.path.join(tp_cov_dir, "vocab.*.yaml"))
   vocab = TestParameterVocab(vocab_filepath=vocab_files[1])
   tp_path = test_parameters
-  random_tp = vocab.vectorize_test(tp_path)
+  tp = vocab.vectorize_test(tp_path)
   design_graph_filepath = os.path.join(graph_dir, "design_graph.pkl")
   graph_handler = GraphHandler(design_graph_filepath, output_dir=graph_dir)
   graphs = graph_handler.get_dataset()
@@ -54,16 +54,16 @@ def adjust_tp(graph_dir, ckpt_dir, test_parameters, tp_cov_dir, cp_idx):
   prev_coverage = 1
   while abs(prev_coverage - coverage) > .01:
     prev_coverage = coverage
-    x = update_tp(random_tp, 1, graphs, bvocab)
+    x = update_tp(tp, 1, graphs, bvocab)
     with tf.GradientTape() as g:
       g.watch(x)
       y = model.call(x)
     coverage = y[[0]]
     dy_dx = g.gradient(y, x)["test_parameters"]
-    random_tp += dy_dx * 10
+    tp += dy_dx * 10
 
-  random_tp = random_tp.numpy()[0]
-  output_yaml(vocab, random_tp, cp_idx)
+  tp = tp.numpy()[0]
+  output_yaml(vocab, tp, cp_idx)
 def update_tp(tp, cp_idx, graphs, bvocab):
     midx = bvocab.get_module_index(cp_idx)
     mask = bvocab.get_mask(cp_idx, midx, mask_length=graphs[0].n_nodes)
