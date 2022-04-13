@@ -364,8 +364,6 @@ class TestParameterVocab:
     test_parameters_vec = []
     for token in self.tokens:
       key = token["key"]
-      if key == "stream_name_2":
-        assert 0
       if token["is_one_hot"]:
         assert token["type"] == "choice"
         key, one_hot_val = key.split("+")
