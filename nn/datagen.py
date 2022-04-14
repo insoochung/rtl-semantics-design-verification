@@ -167,10 +167,21 @@ def combine_data(graph_dir, tp_cov_dir,
   return dataset
 
 
-def load_dataset(tf_data_dir):
-  print(f"Loading data from {tf_data_dir}...")
+def load_element_spec(tf_data_dir):
   with open(os.path.join(tf_data_dir, "shared.element_spec"), "rb") as f:
     es = pickle.load(f)
+  return es
+
+
+def get_fake_inputs(tf_data_dir, n_samples=1):
+  es = load_element_spec(tf_data_dir)[0]
+  shapes = {k: n_samples + v.shape for k, v in es.items()}
+  return {k: np.zeros(shape=v) for k, v in shapes.items()}
+
+
+def load_dataset(tf_data_dir):
+  print(f"Loading data from {tf_data_dir}...")
+  es = load_element_spec(tf_data_dir)
   dataset = {}
   for tfrecord_path in glob.glob(os.path.join(tf_data_dir, "*.tfrecord")):
     cp_num = int(os.path.basename(tfrecord_path).split(".")[1])

@@ -2,7 +2,6 @@ import os
 import sys
 import argparse
 import json
-import math
 
 import numpy as np
 import tensorflow as tf
@@ -12,7 +11,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from data.cdfg_datagen import GraphHandler
 from nn.models import Design2VecBase
-from nn.datagen import load_dataset, split_dataset
+from nn.datagen import load_dataset, split_dataset, get_fake_inputs
 from nn.utils import get_lr_schedule
 
 
@@ -47,10 +46,10 @@ def train(model, dataset, params):
     callbacks.append(
         tf.keras.callbacks.ModelCheckpoint(
             ckpt_path, save_format="tf", monitor="val_loss",
-            save_best_only=True, verbose=True, save_weights_only=True))
+            save_best_only=True, verbose=True))
   else:
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-        ckpt_path, save_format="tf", verbose=True, save_weights_only=True))
+        ckpt_path, save_format="tf", verbose=True))
 
   if params["early_stopping"]:
     callbacks.append(tf.keras.callbacks.EarlyStopping(
@@ -63,12 +62,28 @@ def train(model, dataset, params):
 def evaluate(model, test_dataset, params):
   ckpt_dir = params["ckpt_dir"]
   ckpt_name = params["ckpt_name"]
+  model(get_fake_inputs(params["tf_data_dir"]))
   model.load_weights(os.path.join(ckpt_dir, ckpt_name))
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy", "AUC"])
   return model.evaluate(test_dataset, return_dict=True)
 
 
-def run(params):
+def maybe_init_or_load_model(model, params):
+  ckpt_dir = params["ckpt_dir"]
+  ckpt_name = params["ckpt_name"]
+  ckpt_path = os.path.join(ckpt_dir, ckpt_name)
+  if os.path.exists(ckpt_path):
+    model.load(ckpt_path)
+  elif params["warmstart_dir"]:
+    fake_inputs = get_fake_inputs(params["tf_data_dir"])
+    model(fake_inputs)  # Init model to be able to load weights
+    model.load_weights(
+        os.path.join(params["warmstart_dir"], "model.ckpt", "cdfg_reader"))
+
+  return model
+
+
+def run_training(params):
   tf_data_dir = params["tf_data_dir"]
   split_ratio = params["split_ratio"]
   batch_size = params["batch_size"]
@@ -86,6 +101,7 @@ def run(params):
   params["graphs"] = graphs
   model = get_d2v_model(params)
   compile_model_for_training(model, params)
+  model = maybe_init_or_load_model(model, params)
   history = train(model, dataset, params)
 
   # Evaluate model
@@ -101,7 +117,7 @@ def run(params):
   return meta
 
 
-def run_with_seed(params, run_fn=run):
+def run_with_seed(params, run_fn=run_training):
   seed = params["seed"]
   np.random.seed(seed)
   tf.random.set_seed(seed)
@@ -140,6 +156,8 @@ def set_model_flags(parser, set_required=False):
   # NN related flags
   parser.add_argument("-cd", "--ckpt_dir", type=str, required=required,
                       help="Directory to save the checkpoints.")
+  parser.add_argument("-wd", "--warmstart_dir", type=str, default=None,
+                      help="Directory to fetch the initial weights.")
   parser.add_argument("-pd", "--pretrain_dir", type=str, default=None,
                       help="Directory to save the pretraind models.")
   parser.add_argument("--ckpt_name", type=str, default="model.ckpt",
@@ -193,9 +211,11 @@ def set_model_flags(parser, set_required=False):
   parser.add_argument("--max_n_nodes", type=int, default=4096,
                       help="Max number of nodes that CDFG reader should "
                            "process.")
-  parser.add_argument("--init_att_from_scratch", action="store_true",
-                      default=False, help="Whether to initialize the "
-                                          "attention weights from scratch.")
+  parser.add_argument("--use_custom_attention_hparams",
+                      action="store_true", default=False,
+                      help="Whether to use custom hparams for attention "
+                           "module, if False, use pretrained model from "
+                           "huggingface hub.")
   parser.add_argument("--attention_window", type=int, default=256,
                       help="Window size for Longformer attention.")
   parser.add_argument("--num_attention_heads", type=int, default=12,

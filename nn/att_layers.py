@@ -37,8 +37,6 @@ def init_longformer(params):
   # Run fake input to build the init_model
   init_model(tf.keras.Input(shape=[None], dtype=tf.int32))
   embed_name = init_model.longformer.embeddings.position_embeddings.name
-  print(
-      f"Embedding before: {init_model.longformer.embeddings.position_embeddings}")
   init_model.save_pretrained(pretrain_dir)
   tf.keras.backend.clear_session()
 
@@ -60,14 +58,10 @@ def init_longformer(params):
     for j in range(n_att_hidden):
       new_embed[i][j] = parent_pos_emb[i][j * pool_step_size]
 
-  print(f"Embedding is being replaced with: {new_embed}")
+  # Replace positional embedding from pretrained
   with h5py.File(os.path.join(pretrain_dir, "tf_model.h5"), "r+") as f:
     key = f"longformer/{embed_name}"
     f[key][:] = new_embed
-
-  init_model = TFAutoModel.from_pretrained(pretrain_dir)
-  print(
-      f"Embedding after: {init_model.longformer.embeddings.position_embeddings}")
 
 
 def get_transformer(pretrain_dir, model_id="allenai/longformer-base-4096",
@@ -118,7 +112,7 @@ class AttentionModule(tf.keras.layers.Layer):
         pretrain_dir, model_id=params["huggingface_model_id"],
         max_pos=max_n_nodes + 2, n_hidden=n_hidden,
         n_layers=n_layers, attention_window=params["attention_window"],
-        from_scratch=params["init_att_from_scratch"],
+        from_scratch=params["use_custom_attention_hparams"],
         num_attention_heads=params["num_attention_heads"], params=params)
 
     self.att_block.set_output_embeddings(lambda x: x)

@@ -191,6 +191,9 @@ class CdfgReader(tf.keras.layers.Layer):
     # Prepare inputs
     # cdfg_xs (batch_size, num_nodes, num_features)
     # cdfg_as: (batch_size, num_nodes, num_nodes)
+    graph = inputs["graph"]
+    if len(graph.shape) == 1:
+      graph = tf.expand_dims(graph, axis=-1)
     cdfg_xs = tf.gather_nd(self.batch_xs, inputs["graph"])
     cdfg_as = tf.gather_nd(self.batch_as, inputs["graph"])
 
@@ -268,10 +271,6 @@ class CdfgReader(tf.keras.layers.Layer):
 
   def call(self, inputs):
     # Make this work with generated dataset with legacy datagen code.
-    for key in ["graph", "coverpoint"]:
-      if len(inputs[key].shape) == 1:
-        inputs[key] = tf.expand_dims(inputs[key], axis=-1)
-
     if self.use_attention:
       return self.attention_forward(inputs)
     else:

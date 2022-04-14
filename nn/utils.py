@@ -22,6 +22,13 @@ class WarmUpThenDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
     decay = lr * tf.math.pow(decay_factor, step_tf - warmup_steps_tf)
     return tf.cond(cond, lambda: warmup, lambda: decay)
 
+  def get_config(self):
+    config = {"initial_learning_rate": self.initial_learning_rate,
+              "warmup_steps": self.warmup_steps,
+              "decay_rate": self.decay_rate,
+              "decay_steps": self.decay_steps}
+    return config
+
 
 def get_lr_schedule(
         lr, lr_scheme, decay_rate=0.90, decay_steps=500, warmup_steps=1000):
