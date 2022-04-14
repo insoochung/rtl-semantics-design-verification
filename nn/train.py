@@ -21,12 +21,17 @@ def get_d2v_model(params):
   return model
 
 
-def compile_model_for_training(model, params):
+def get_optimizer(params):
   lr_schedule = get_lr_schedule(
       params["lr"], params["lr_scheme"], params["decay_rate"],
       params["decay_steps"], params["warmup_steps"])
   optimizer = tf.keras.optimizers.get(params["optimizer"]).__class__
   optimizer = optimizer(learning_rate=lr_schedule)
+  return optimizer
+
+
+def compile_model_for_training(model, params):
+  optimizer = get_optimizer(params)
   model.compile(loss="binary_crossentropy", metrics=["binary_accuracy", "AUC"],
                 optimizer=optimizer)
 
@@ -96,16 +101,12 @@ def run(params):
   return meta
 
 
-def run_with_seed(params):
+def run_with_seed(params, run_fn=run):
   seed = params["seed"]
-  append_seed_to_ckpt_dir = params["append_seed_to_ckpt_dir"]
   np.random.seed(seed)
   tf.random.set_seed(seed)
-  if append_seed_to_ckpt_dir:
-    seed_str = f"seed-{seed}"
-    params["ckpt_dir"] = os.path.join(params["ckpt_dir"], seed_str)
   update_params_default(params)
-  m = run(params)
+  m = run_fn(params)
   m["seed"] = seed
   print(f"Train info: {m}")
   with open(os.path.join(params["ckpt_dir"], "meta.json"), "w") as f:
@@ -114,8 +115,14 @@ def run_with_seed(params):
 
 
 def update_params_default(params):
+  seed = params["seed"]
+  if params["append_seed_to_ckpt_dir"]:
+    seed_str = f"seed-{seed}"
+    params["ckpt_dir"] = os.path.join(params["ckpt_dir"], seed_str)
   params["n_mlp_hidden"] = params["n_mlp_hidden"] or params["n_hidden"]
   params["n_lstm_hidden"] = params["n_lstm_hidden"] or params["n_hidden"]
+  params["pretrain_dir"] = params["pretrain_dir"] or os.path.join(
+      params["ckpt_dir"], "pretrain")
   return params
 
 
@@ -133,8 +140,7 @@ def set_model_flags(parser, set_required=False):
   # NN related flags
   parser.add_argument("-cd", "--ckpt_dir", type=str, required=required,
                       help="Directory to save the checkpoints.")
-  parser.add_argument("-pd", "--pretrain_dir", type=str,
-                      default="pretrain/longformer-base-4096",
+  parser.add_argument("-pd", "--pretrain_dir", type=str, default=None,
                       help="Directory to save the pretraind models.")
   parser.add_argument("--ckpt_name", type=str, default="model.ckpt",
                       help="Name of the checkpoint.")
@@ -154,7 +160,7 @@ def set_model_flags(parser, set_required=False):
                       help="Number of hidden units in the Longformer.")
   parser.add_argument("--n_att_layers", type=int, default=16,
                       help="Number of hidden layers in the Longformer.")
-  parser.add_argument("--n_lstm_hidden", type=int, default=None,
+  parser.add_argument("--n_lstm_hidden", type=int, default=64,
                       help="Size of hidden dimension in the LSTM.")
   parser.add_argument("--dropout", type=float, default=0.1,
                       help="Dropout rate.")
@@ -163,14 +169,14 @@ def set_model_flags(parser, set_required=False):
                       help="Learning rate scheme.")
   parser.add_argument("--decay_rate", type=float, default=0.9,
                       help="Learning rate decay rate.")
-  parser.add_argument("--decay_steps", type=int, default=500,
+  parser.add_argument("--decay_steps", type=int, default=4000,
                       help="Learning rate decay steps.")
-  parser.add_argument("--warmup_steps", type=int, default=1000,
+  parser.add_argument("--warmup_steps", type=int, default=8000,
                       help="Learning rate warm up steps.")
-  parser.add_argument("--batch_size", type=int, default=64, help="Batch size.")
+  parser.add_argument("--batch_size", type=int, default=32, help="Batch size.")
   parser.add_argument("--epochs", type=int, default=50,
                       help="Number of epochs to train.")
-  parser.add_argument("--seed", type=int, default=0,
+  parser.add_argument("--seed", type=int, default=123,
                       help="Seed to set.")
   parser.add_argument("--append_seed_to_ckpt_dir", action="store_true",
                       default=False, help="Append the seed path/dir vars.")

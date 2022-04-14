@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout
@@ -21,7 +22,8 @@ def preprocess_cdfgs(cdfgs):
     cdfg_as.append(cdfg.a)
   cdfg_xs = tf.stack(cdfg_xs)
   cdfg_as = tf.stack(cdfg_as)
-  return cdfg_xs, cdfg_as
+  return (
+      tf.cast(cdfg_xs, dtype=tf.float32), tf.cast(cdfg_as, dtype=tf.float32))
 
 
 def add_cls_tok_to_cdfgs(cdfg_xs, cdfg_as, cls_tok):
@@ -129,8 +131,6 @@ class CdfgReader(tf.keras.layers.Layer):
     self.use_attention = use_attention
 
     self.batch_xs, self.batch_as = preprocess_cdfgs(cdfgs)
-    self.batch_xs = tf.cast(self.batch_xs, dtype=tf.float32)
-    self.batch_as = tf.cast(self.batch_as, dtype=tf.float32)
     if self.use_attention:
       (self.single_xs, self.single_as, self.cdfg_lens, self.cdfg_offsets
        ) = convert_batch_to_single_mode(self.batch_xs, self.batch_as)
@@ -240,17 +240,29 @@ class CdfgReader(tf.keras.layers.Layer):
 
     return cp_embed
 
-  def pretrain_forward(self, inputs, batch_size=16):
-    cdfg_xs, cdfg_as = self.single_xs, self.single_as
+  def pretrain_forward(self, batch_size=16, cdfgs=None, percent_graphs=0.85):
+    if cdfgs is not None:
+      cdfg_xs, cdfg_as, cdfg_lens = cdfgs
+    else:
+      cdfg_xs, cdfg_as = self.single_xs, self.single_as
+      cdfg_lens = self.cdfg_lens
     x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
-    x = self.node_embed_bottleneck(x)  # (batch_size, num_nodes, n_att_hidden)
-    # Add dimension to x to match size with y
     x = tf.expand_dims(x, axis=0)  # x: (1, num_nodes, n_att_module)
+    x_list = tf.split(x, cdfg_lens, axis=1)
+
+    # Pick a random subset of graphs
+    indices = list(range(len(x_list)))
+    random.shuffle(indices)
+    indices = indices[:int(len(x_list) * percent_graphs)]
+    x_list = [x_list[i] for i in indices]
+    cdfg_lens = [cdfg_lens[i] for i in indices]
+    x = tf.concat(x_list, axis=1)  # (1, num_nodes, n_att_module)
+    x = self.node_embed_bottleneck(x)  # (1, num_nodes, n_att_hidden)
     # x: (batch_size, num_nodes, n_att_module)
     x = tf.tile(x, multiples=[batch_size, 1, 1])
     # Split output per graph lengths
     # x_list = [(batch_size, ?, n_att_module), ...]
-    x_list = tf.split(x, self.cdfg_lens, axis=1)
+    x_list = tf.split(x, cdfg_lens, axis=1)
     y, y_labels = self.att_module.pretrain_forward(x_list)
     return y, y_labels
 
