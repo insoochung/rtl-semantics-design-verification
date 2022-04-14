@@ -1,10 +1,16 @@
 import os
+import sys
 import h5py
 import tensorflow as tf
 import numpy as np
 
 from transformers import AutoConfig
 from transformers import TFAutoModel
+
+sys.path.append(os.path.join(
+    os.path.dirname(__file__), "../third_party/bigbird"))
+
+from nn.transformer import Decoder as TransformerDecoder
 
 
 def tile_token_for_batch(tok, batch_size):
@@ -70,7 +76,7 @@ def get_transformer(pretrain_dir, model_id="allenai/longformer-base-4096",
                     params=None):
 
   if from_scratch:
-    init_longformer(params)
+    init_longformer(params)  # Saves initial transformer to pretrain_dir
   else:
     ignored_values = {"max_position_embeddings": max_pos,
                       "hidden_size": n_hidden,
@@ -108,16 +114,31 @@ class AttentionModule(tf.keras.layers.Layer):
     super().__init__()
     self.max_n_nodes = max_n_nodes
     self.mask_dtype = tf.int32
-    self.att_block = get_transformer(
-        pretrain_dir, model_id=params["huggingface_model_id"],
-        max_pos=max_n_nodes + 2, n_hidden=n_hidden,
-        n_layers=n_layers, attention_window=params["attention_window"],
-        from_scratch=params["use_custom_attention_hparams"],
-        num_attention_heads=params["num_attention_heads"], params=params)
+    self.att_encoder = None
+    self.att_decoder = None
 
-    self.att_block.set_output_embeddings(lambda x: x)
+    model_id = params["huggingface_model_id"]
+    num_attention_heads = params["num_attention_heads"]
 
-    self.n_hidden = self.att_block.config.hidden_size
+    if params["use_att_encoder"]:
+      self.att_encoder = get_transformer(
+          pretrain_dir, model_id=model_id,
+          max_pos=max_n_nodes + 2, n_hidden=n_hidden,
+          n_layers=n_layers, attention_window=params["attention_window"],
+          from_scratch=params["use_custom_attention_hparams"],
+          num_attention_heads=num_attention_heads, params=params)
+      # To ignore final softmax layer
+      self.att_encoder.set_output_embeddings(lambda x: x)
+      if params["freeze_att_encoder"]:
+        for layer in self.att_encoder.layers:
+          layer.trainable = False
+
+    if params["use_att_decoder"]:
+      self.att_decoder = TransformerDecoder(
+          num_layers=n_layers, d_model=n_hidden, rate=params["dropout"],
+          num_heads=params["num_attention_heads"], dff=n_hidden * 4)
+
+    self.n_hidden = self.att_encoder.config.hidden_size
     self.one = tf.ones(shape=(1))
     self.zero = tf.zeros(shape=(1))
     var_init = tf.keras.initializers.glorot_uniform()
@@ -131,7 +152,7 @@ class AttentionModule(tf.keras.layers.Layer):
         var_init(shape=(1, self.n_hidden)), trainable=True,
         name="mask_node")
 
-  def prepare_pretrain_forward(self, inputs):
+  def get_input_information(self, inputs):
     mask_dtype = self.mask_dtype
     batch_size = tf.shape(inputs[0])[0]
     sep_node = tile_token_for_batch(self.sep_node, batch_size)
@@ -141,40 +162,72 @@ class AttentionModule(tf.keras.layers.Layer):
     ones_batch = tf.ones(shape=(batch_size, 1), dtype=mask_dtype)
     return batch_size, sep_batch, cls_batch, ones_batch
 
-  def prepare_pretrain_input(self, inputs):
+  def prepare_att_input(self, inputs):
     mask_dtype = self.mask_dtype
     (batch_size, sep_batch, cls_batch, ones_batch) = (
-        self.prepare_pretrain_forward(inputs))
+        self.get_input_information(inputs))
     _x_list = []
     global_att_mask = []
-    for x in inputs:
+    for i, x in enumerate(inputs):
       _x_list.append(x)
       _x_list.append(sep_batch)
       global_att_mask.append(
           tf.zeros(shape=tf.shape(x)[:2], dtype=mask_dtype))
       global_att_mask.append(ones_batch)
+
     x = tf.concat([cls_batch] + _x_list, axis=1)
     global_att_mask = tf.concat([ones_batch] + global_att_mask, axis=1)
     return x, global_att_mask, batch_size, mask_dtype
 
   def call(self, inputs):
-    x, global_att_mask, batch_size, mask_dtype = self.prepare_pretrain_input(
-        inputs)
-    query_len = tf.shape(inputs[-1])[1] + 1
+    x, y = inputs["x"], inputs["y"]
+    if self.att_decoder is not None:
+      x.append(y)  # If decoder isn't used, add y to input.
+
+    x, global_att_mask, batch_size, mask_dtype = self.prepare_att_input(x)
+
+    if self.att_decoder is None:
+      query_len = tf.shape(inputs[-1])[1] + 1
+    else:
+      query_len = 0
     token_type_ids = tf.concat([
         tf.zeros(shape=(batch_size, tf.shape(x)[1] - query_len),
                  dtype=mask_dtype),
         tf.ones(shape=(batch_size, query_len), dtype=mask_dtype)],
         axis=1)
-    x = self.att_block(input_ids=None, inputs_embeds=x,
-                       token_type_ids=token_type_ids,
-                       global_attention_mask=global_att_mask)
-    x = tf.expand_dims(x.pooler_output, axis=1)
+
+    if self.att_encoder is not None and self.att_decoder is not None:
+      # In this case as all rows in x are the same (no query in x, only cdfg
+      # nodes) we can just use the first row to save memory.
+      x = x[:1, ...]
+      global_att_mask = global_att_mask[:1, ...]
+      token_type_ids = token_type_ids[:1, ...]
+
+    if self.att_encoder is not None:
+      x = self.att_encoder(input_ids=None, inputs_embeds=x,
+                           token_type_ids=token_type_ids,
+                           global_attention_mask=global_att_mask)
+      if self.att_decoder is None:
+        # Encoder output is returned if no decoder is used.
+        return tf.expand_dims(x.pooler_output, axis=1)
+      else:
+        x = x.last_hidden_state  # This will be used as input to decoder
+
+    if self.att_encoder is not None and self.att_decoder is not None:
+      # Revert batch size dimension
+      x = tf.tile(x, multiples=[batch_size, 1, 1])
+
+    if self.att_decoder is not None:
+      encoder_output = x  # [batch_size, num_nodes, n_hidden]
+      query = y  # [batch_size, 1, n_hidden]
+      # x: [batch_size, 1, n_hidden]
+      x = self.att_decoder(x=query, enc_output=encoder_output)
+
     return x
 
   def pretrain_forward(self, inputs, mask_ratio=0.15):
     (x, global_att_mask, batch_size, mask_dtype) = (
-        self.prepare_pretrain_input(inputs))
+        self.prepare_att_input(inputs))
     embed = x[0]  # Later transposed and matmul to output to get likelihoods
 
     # mask_mask: 1 where the node will be replaced with mask_node
@@ -188,9 +241,9 @@ class AttentionModule(tf.keras.layers.Layer):
     x = tf.tensor_scatter_nd_update(x, mask_location, mask_batch)
     token_type_ids = tf.zeros(
         shape=(batch_size, tf.shape(x)[1]), dtype=mask_dtype)
-    x = self.att_block(input_ids=None, inputs_embeds=x,
-                       token_type_ids=token_type_ids,
-                       global_attention_mask=global_att_mask)
+    x = self.att_encoder(input_ids=None, inputs_embeds=x,
+                         token_type_ids=token_type_ids,
+                         global_attention_mask=global_att_mask)
     x = x.last_hidden_state
 
     # Transpose embedding to get likelihoods for each mask location
