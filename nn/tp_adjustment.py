@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import sys
 import os
+import time
 import json
 import yaml
 import argparse
@@ -33,7 +34,7 @@ def output_yaml(vocab, tp, cp_idx):
   with open(f"{adjusted_test_name}.yaml", "w+") as f:
     f.write(gen_opts_str)
 
-def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx):
+def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx, learning_rate=1, step_threshold=50):
   vocab_files = glob(os.path.join(tp_cov_dir, "vocab.*.yaml"))
   vocab = TestParameterVocab(vocab_filepath=vocab_files[1])
   tp_size = len(vocab.tokens)
@@ -51,12 +52,11 @@ def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx):
   model = get_d2v_model(**model_config)
   model.load_weights(os.path.join(ckpt_dir, "model.ckpt"))
 
+  steps = 0
   is_hit = 0
-  lr = 1
-  step_threshold = 50
   for step in range(step_threshold):
     if step == step_threshold - 1:
-      while(is_hit < .9):
+      while(is_hit < .9 and steps < 1000):
         x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
         with tf.GradientTape() as g:
           g.watch(x)
@@ -64,7 +64,9 @@ def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx):
           loss = y[[0]] - 1
         is_hit = y[[0]]
         dy_dx = g.gradient(loss, x)["test_parameters"]
-        tp += dy_dx * lr
+        tp += dy_dx * learning_rate
+        steps += 1
+        tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
     else:
       x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
       with tf.GradientTape() as g:
@@ -73,8 +75,9 @@ def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx):
         loss = y[[0]] - 1
       is_hit = y[[0]]
       dy_dx = g.gradient(loss, x)["test_parameters"]
-      tp += dy_dx * lr
-  tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
+      tp += dy_dx * learning_rate
+      steps += 1
+      tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
   output_yaml(vocab, tp, cp_idx)
 def update_tp(tp, cp_idx, graphs, bvocab, tp_size):
     midx = bvocab.get_module_index(cp_idx)
@@ -84,8 +87,6 @@ def update_tp(tp, cp_idx, graphs, bvocab, tp_size):
     is_hit = np.array([1])
     gidx = np.array([midx])
     cp = np.array([cp_idx])
-    if isinstance(tp, tf.Tensor):
-      tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
     ret = {
       "test_parameters": np.array([tp]).reshape(1, tp_size),
       "is_hits": is_hit.reshape(1, 1),
@@ -110,6 +111,10 @@ if __name__ == "__main__":
     parser.add_argument("-td", "--tp_cov_dir", type=str,
                       help="Directory of the test parameter coverage dataset.")
     parser.add_argument("-cp", "--cp_idx", type=int,
+                      help="Coverpoint index.")
+    parser.add_argument("-lr", "--learning_rate", type=int,
+                      help="Coverpoint index.")
+    parser.add_argument("-st", "--step_threshold", type=int,
                       help="Coverpoint index.")
     args = parser.parse_args()
     adjust_tp(**vars(args))
