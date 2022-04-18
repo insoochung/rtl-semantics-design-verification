@@ -5,14 +5,13 @@ import json
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from data.cdfg_datagen import GraphHandler
 from nn.models import Design2VecBase
 from nn.datagen import load_dataset, split_dataset, get_fake_inputs
-from nn.utils import get_lr_schedule
+from nn.utils import get_lr_schedule, warmstart_pretrained_weights
 
 
 def get_d2v_model(params):
@@ -77,8 +76,11 @@ def maybe_init_or_load_model(model, params):
   elif params["warmstart_dir"]:
     fake_inputs = get_fake_inputs(params["tf_data_dir"])
     model(fake_inputs)  # Init model to be able to load weights
-    model.load_weights(
-        os.path.join(params["warmstart_dir"], "model.ckpt", "cdfg_reader"))
+    warmstart_path = os.path.join(
+        params["warmstart_dir"], params["ckpt_name"], "cdfg_reader")
+    assert os.path.exists(os.path.exists(os.path.dirname(warmstart_path))), (
+        f"{warmstart_path} not found")
+    warmstart_pretrained_weights(model, warmstart_path)
 
   return model
 
@@ -183,7 +185,7 @@ def set_model_flags(parser, set_required=False):
   parser.add_argument("--dropout", type=float, default=0.1,
                       help="Dropout rate.")
   parser.add_argument("--lr", type=float, default=0.001, help="Learning rate.")
-  parser.add_argument("--lr_scheme", type=str, default="linear_decay",
+  parser.add_argument("--lr_scheme", type=str, default="warmup_then_decay",
                       help="Learning rate scheme.")
   parser.add_argument("--decay_rate", type=float, default=0.9,
                       help="Learning rate decay rate.")

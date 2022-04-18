@@ -132,13 +132,14 @@ class AttentionModule(tf.keras.layers.Layer):
       if params["freeze_att_encoder"]:
         for layer in self.att_encoder.layers:
           layer.trainable = False
+          print(f"Freezing layer {layer.name}")
 
     if params["use_att_decoder"]:
       self.att_decoder = TransformerDecoder(
           num_layers=n_layers, d_model=n_hidden, rate=params["dropout"],
           num_heads=params["num_attention_heads"], dff=n_hidden * 4)
 
-    self.n_hidden = self.att_encoder.config.hidden_size
+    self.n_hidden = n_hidden
     self.one = tf.ones(shape=(1))
     self.zero = tf.zeros(shape=(1))
     var_init = tf.keras.initializers.glorot_uniform()
@@ -187,7 +188,7 @@ class AttentionModule(tf.keras.layers.Layer):
     x, global_att_mask, batch_size, mask_dtype = self.prepare_att_input(x)
 
     if self.att_decoder is None:
-      query_len = tf.shape(inputs[-1])[1] + 1
+      query_len = tf.shape(x[-1])[1] + 1
     else:
       query_len = 0
     token_type_ids = tf.concat([

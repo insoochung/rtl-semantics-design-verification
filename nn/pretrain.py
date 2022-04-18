@@ -12,10 +12,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from data.cdfg_datagen import GraphHandler
 from nn.models import Design2VecBase
 from nn.train import set_model_flags, run_with_seed, get_optimizer
+from nn.datagen import get_fake_inputs
+from nn.utils import warmstart_pretrained_weights, save_model
 
 
-def accumulate_gradients_and_loss(grads_list, losses, accum_steps):
+def accumulate_gradients_and_loss(grads_list, losses, accum_steps, train_vars):
   # Accumulate gradients
+  for g, v in zip(grads_list[0], train_vars):
+    if g is None:
+      assert 0, f"No gradient for {v.name}"
   grads = [tf.zeros_like(g) for g in grads_list[0]]
   for g in grads_list:
     for idx, _ in enumerate(g):
@@ -24,6 +29,23 @@ def accumulate_gradients_and_loss(grads_list, losses, accum_steps):
     grads[idx] /= accum_steps
   loss = sum(losses) / accum_steps
   return grads, loss
+
+
+def load_or_warmstart_model(save_path, params):
+  if os.path.exists(os.path.dirname(save_path)):
+    raise NotImplementedError(
+        "Checkpoint directory already exists, and load from save not "
+        "supported yet, use 'warmstart_dir' instead.")
+  if not os.path.exists(os.path.dirname(save_path)):
+    model = Design2VecBase(params)
+    model(get_fake_inputs(params["tf_data_dir"]))
+    if params["warmstart_dir"] is not None:
+      warmstart_path = os.path.join(
+          params["warmstart_dir"], params["ckpt_name"], "cdfg_reader")
+      assert os.path.exists(os.path.exists(os.path.dirname(warmstart_path))), (
+          f"{warmstart_path} not found")
+      warmstart_pretrained_weights(model, warmstart_path)
+    return model
 
 
 def pretrain(params):
@@ -37,26 +59,26 @@ def pretrain(params):
   params["graphs"] = cdfgs
   # Pretraining is for the attention model only.
   assert params["use_attention"]
-
-  model = Design2VecBase(params)
-  cdfg_reader = model.cdfg_reader
   save_path = os.path.join(
-      params["ckpt_dir"], params["ckpt_name"], "cdfg_reader")
+      params["ckpt_dir"], params["ckpt_name"])
 
+  model = load_or_warmstart_model(save_path, params)
   optimizer = get_optimizer(params)
   loss_obj = tf.keras.losses.CategoricalCrossentropy(
       label_smoothing=params["label_smoothing"])
   train_vars = []
-  for v in cdfg_reader.trainable_variables:
+  for v in model.cdfg_reader.trainable_variables:
     if "pooler" in v.name or "word_embeddings" in v.name:
+      continue
+    if v.name.startswith("design2_vec_base/cdfg_reader/feed_forward/"):
       continue
     train_vars.append(v)
 
   batch_size = params["batch_size"] / accum_steps
   assert batch_size - int(batch_size) == 0
   batch_size = int(batch_size)
-  train_progress = tqdm(range(params["train_steps"]))
-  last_saved = 0
+  train_progress = tqdm(range(params["train_steps"]), initial=0,)
+  last_saved = -1
 
   print(f"Pretraining (save_path: \"{save_path}\")")
   pretrain_loss = []
@@ -66,16 +88,17 @@ def pretrain(params):
     losses = []
     for inner_step in range(accum_steps):
       with tf.GradientTape() as tape:
-        y, y_labels = cdfg_reader.pretrain_forward(
+        y, y_labels = model.cdfg_reader.pretrain_forward(
             batch_size=batch_size)
         loss = loss_obj(y_labels, y)
         losses.append(loss)
         grads_list.append(tape.gradient(loss, train_vars))
     grads, loss = accumulate_gradients_and_loss(grads_list, losses,
-                                                accum_steps)
+                                                accum_steps, train_vars)
     pretrain_loss.append(loss)
     train_progress.set_description(
-        f"loss: {loss:.2f}, last_saved: {last_saved} -> ")
+        f"loss: {loss:.2f}, "
+        f"(last_saved: step={last_saved}, loss={best_loss:.2f}) -> ")
     # Apply gradients
     optimizer.apply_gradients(zip(grads, train_vars))
     del grads_list, grads
@@ -83,12 +106,12 @@ def pretrain(params):
       loss = np.mean(pretrain_loss[:save_steps])
       if best_loss < loss:
         continue  # Only save if this loss is better than the best loss
-      print(f"Saving cdfg_reader (step: {step}, "
+      print(f"Saving model @ (step: {step}, "
             f"mean_loss (last {save_steps} steps): {loss:.2f})")
       best_loss = loss
       last_saved = step
-      model.save_weights(save_path)
-  model.save_weights(save_path)
+      save_model(model, save_path)
+  save_model(model, save_path)
 
   return {"pretrain_loss": pretrain_loss, "last_saved_step": last_saved}
 
