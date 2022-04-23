@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+import copy
 
 import numpy as np
 import tensorflow as tf
@@ -26,17 +27,15 @@ DEFAULT_SEARCH_RANGE = {  # Common hparams
     "dropout": [0.1, 0.2],
     "num_attention_heads": [1, 2, 4, 8],
     "n_att_hidden": [32, 64, 128, 256, 512],
-    "n_att_layers": [1, 2, 4, 8],
-
+    "n_att_layers": [1, 2, 4, 6],
 }
 
 
 def get_params(hp, params: dict):
-  search_params = {}
+  search_params = copy.deepcopy(params)
   for key in params["search_keys"]:
     search_params[key] = hp.Choice(key, DEFAULT_SEARCH_RANGE[key])
 
-  search_params.update(params)
   return search_params
 
 

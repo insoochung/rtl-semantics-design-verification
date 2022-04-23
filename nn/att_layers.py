@@ -112,6 +112,7 @@ class AttentionModule(tf.keras.layers.Layer):
   def __init__(self, n_hidden, n_layers, max_n_nodes=4096,
                pretrain_dir="pretrain/longformer-base-4096", params=None):
     super().__init__()
+    assert params["use_att_encoder"] or params["use_att_decoder"]
     self.max_n_nodes = max_n_nodes
     self.mask_dtype = tf.int32
     self.att_encoder = None
