@@ -226,13 +226,13 @@ def set_model_flags(parser, set_required=False):
                       default="allenai/longformer-base-4096",
                       help="Id of the pretrained Longformer model.")
   parser.add_argument("--use_att_encoder",
-                      action="store_true", default=True)
-  parser.add_argument("--no_att_encoder", dest="use_att_encoder",
-                      action="store_false", default=True)
-  parser.add_argument("--use_att_decoder",
                       action="store_true", default=False)
-  parser.add_argument("--no_att_decoder", dest="use_att_decoder",
+  parser.add_argument("--no_att_encoder", dest="use_att_encoder",
                       action="store_false", default=False)
+  parser.add_argument("--use_att_decoder",
+                      action="store_true", default=True)
+  parser.add_argument("--no_att_decoder", dest="use_att_decoder",
+                      action="store_false", default=True)
   parser.add_argument("--freeze_att_encoder",
                       action="store_true", default=False)
 

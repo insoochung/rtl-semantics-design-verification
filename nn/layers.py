@@ -235,7 +235,8 @@ class CdfgReader(tf.keras.layers.Layer):
     # x_list = [(batch_size, ?, n_att_module), ...]
     x_list = tf.split(x, self.cdfg_lens, axis=1)
     # cp_embed: (batch_size, num_nodes, n_att_module)
-    cp_embed = self.att_module({"x": x_list, "y": y})
+    cp_embed = self.att_module(
+        {"x": x_list, "y": y, "cp_idx": inputs["coverpoint"]})
     cp_embed = cp_embed[:, 0, :]  # (batch_size, n_att_module)
     # cp_embed = tf.concat([cp_embed, y], axis=-1)  # (batch_size, n_hidden)
     cp_embed = self.att_pooler(cp_embed)  # (batch_size, n_hidden)

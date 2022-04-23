@@ -10,7 +10,7 @@ from transformers import TFAutoModel
 sys.path.append(os.path.join(
     os.path.dirname(__file__), "../third_party/bigbird"))
 
-from nn.transformer import Decoder as TransformerDecoder
+from nn.transformer import CrossModalModule
 
 
 def tile_token_for_batch(tok, batch_size):
@@ -135,9 +135,10 @@ class AttentionModule(tf.keras.layers.Layer):
           print(f"Freezing layer {layer.name}")
 
     if params["use_att_decoder"]:
-      self.att_decoder = TransformerDecoder(
+      self.att_decoder = CrossModalModule(
           num_layers=n_layers, d_model=n_hidden, rate=params["dropout"],
           num_heads=params["num_attention_heads"], dff=n_hidden * 4)
+      self.cp_embedding = tf.keras.layers.Embedding(5000, n_hidden)
 
     self.n_hidden = n_hidden
     self.one = tf.ones(shape=(1))
@@ -181,7 +182,7 @@ class AttentionModule(tf.keras.layers.Layer):
     return x, global_att_mask, batch_size, mask_dtype
 
   def call(self, inputs):
-    x, y = inputs["x"], inputs["y"]
+    x, y, cp_idx = inputs["x"], inputs["y"], inputs["cp_idx"]
     use_encoder = self.att_encoder is not None
     use_decoder = self.att_decoder is not None
     if use_decoder:
@@ -222,7 +223,7 @@ class AttentionModule(tf.keras.layers.Layer):
 
     if self.att_decoder is not None:
       encoder_output = x  # [batch_size, num_nodes, n_hidden]
-      query = y  # [batch_size, 1, n_hidden]
+      query = y + self.cp_embedding(cp_idx)  # [batch_size, 1, n_hidden]
       # x: [batch_size, 1, n_hidden]
       x = self.att_decoder(x=query, enc_output=encoder_output)
 
