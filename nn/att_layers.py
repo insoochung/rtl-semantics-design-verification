@@ -139,7 +139,8 @@ class AttentionModule(tf.keras.layers.Layer):
       self.att_decoder = CrossModalModule(
           num_layers=n_layers, d_model=n_hidden, rate=params["dropout"],
           num_heads=params["num_attention_heads"], dff=n_hidden * 4)
-      self.cp_embedding = tf.keras.layers.Embedding(5000, n_hidden)
+      self.cp_embedding = tf.keras.layers.Embedding(
+          params["n_max_coverpoints"], n_hidden)
 
     self.n_hidden = n_hidden
     self.one = tf.ones(shape=(1))

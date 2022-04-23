@@ -235,6 +235,9 @@ def set_model_flags(parser, set_required=False):
                       action="store_false", default=True)
   parser.add_argument("--freeze_att_encoder",
                       action="store_true", default=False)
+  parser.add_argument("--design_feedback_type",
+                      type=str, default="cdfg_reader")
+  parser.add_argument("--n_max_coverpoints", type=int, default=2000)
 
 
 if __name__ == "__main__":
