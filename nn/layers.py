@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout
@@ -7,8 +8,8 @@ from spektral.layers import GCNConv
 
 sys.path.append(os.path.join(
     os.path.dirname(__file__), "../third_party/bigbird"))
-from bigbird.core import flags as bigbird_flags
-from bigbird.core.decoder import DecoderStack as BigBirdDecoderStack
+
+from nn.att_layers import AttentionModule
 
 
 def preprocess_cdfgs(cdfgs):
@@ -21,7 +22,34 @@ def preprocess_cdfgs(cdfgs):
     cdfg_as.append(cdfg.a)
   cdfg_xs = tf.stack(cdfg_xs)
   cdfg_as = tf.stack(cdfg_as)
-  return cdfg_xs, cdfg_as
+  return (
+      tf.cast(cdfg_xs, dtype=tf.float32), tf.cast(cdfg_as, dtype=tf.float32))
+
+
+def add_cls_tok_to_cdfgs(cdfg_xs, cdfg_as, cls_tok):
+  if len(cls_tok.shape) != 2:
+    assert len(cls_tok.shape) == 1
+    cls_tok = tf.expand_dims(cls_tok, axis=0)
+  assert len(cdfg_xs.shape) == 2 and len(cdfg_as.shape) == 2, (
+      f"CDFGs must be 2D or in single mode, provided shapes are, "
+      f"XS: {cdfg_xs.shape}, AS: {cdfg_as.shape}")
+  _xs = tf.concat([cls_tok, cdfg_xs], axis=0)
+  _as = tf.sparse.to_dense(cdfg_as)
+  # Update adjancent matrix for CLS token.
+  # Note: CLS token acts as an isolated node in the graph.
+  _as = tf.concat([tf.zeros(shape=(1, _as.shape[1])), _as], axis=0)  # Add row
+  _as = tf.concat([tf.zeros(shape=(_as.shape[0], 1)), _as], axis=1)  # Add col
+
+  return _xs, _as
+
+
+def add_padding(tensor, min_size, rank=2, axis=0):
+  # Increment the dimension of an axis by 1 by padding with zeros
+  assert len(tensor.shape) == rank
+  pad_size = min_size - tf.shape(tensor)[axis]
+  paddings = [[0, 0] for _ in range(rank)]
+  paddings[axis][1] = pad_size
+  return tf.pad(tensor, paddings)
 
 
 def convert_batch_to_single_mode(cdfg_xs, cdfg_as):
@@ -62,8 +90,7 @@ def convert_batch_to_single_mode(cdfg_xs, cdfg_as):
 
 class FeedForward(tf.keras.layers.Layer):
   def __init__(self, n_layers, n_hidden, n_out, dropout, dropout_at_end=False,
-               activation="relu", final_activation="tanh",
-               dtype=tf.float32):
+               activation="relu", final_activation="tanh", params=None):
     super(FeedForward, self).__init__()
     self.n_layers = n_layers
     self.n_hidden = n_hidden
@@ -74,10 +101,10 @@ class FeedForward(tf.keras.layers.Layer):
     self.dropout_layers = []
     for _ in range(n_layers - 1):
       self.dense_layers.append(
-          Dense(n_hidden, activation=activation, dtype=dtype))
+          Dense(n_hidden, activation=activation))
       self.dropout_layers.append(Dropout(dropout))
     self.dense_layers.append(
-        Dense(n_out, activation=final_activation, dtype=dtype))
+        Dense(n_out, activation=final_activation))
     if dropout_at_end:
       self.dropout_layers.append(Dropout(dropout))
 
@@ -92,51 +119,10 @@ class FeedForward(tf.keras.layers.Layer):
     return x
 
 
-class AttentionModule(tf.keras.layers.Layer):
-  def __init__(self, n_hidden, max_n_nodes=4096, dropout=0.1,
-               dtype=tf.float32):
-    super().__init__()
-
-    var_init = tf.keras.initializers.glorot_uniform()
-    self.cls_tok = tf.Variable(
-        var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
-    self.sep_tok = tf.Variable(
-        var_init(shape=[n_hidden]), trainable=True, dtype=dtype)
-    self.pos_embed = tf.Variable(
-        var_init(shape=[max_n_nodes, n_hidden]), trainable=True, dtype=dtype)
-
-    params = bigbird_flags.FLAGS.flag_values_dict()  # Default params
-    params["use_gradient_checkpointing"] = False
-    params["attention_probs_dropout_prob"] = dropout
-    params["hidden_dropout_prob"] = dropout
-    params["num_attention_heads"] = 4
-    params["num_hidden_layers"] = 6
-    params["hidden_size"] = n_hidden
-    params["intermediate_size"] = n_hidden * 4
-    params["max_encoder_length"] = max_n_nodes
-    # To name bigbird module to encoder
-    params["couple_encoder_decoder"] = False
-    self.att_block = BigBirdDecoderStack(params)
-    self.self_attention_mask = tf.ones(shape=(1, 1, 1, 1), dtype=dtype)
-    self.encoder_mask = tf.ones(shape=(1, max_n_nodes), dtype=dtype)
-
-  def call(self, inputs):
-    x = inputs["x"]
-    y = inputs["y"]
-    x += tf.expand_dims(self.pos_embed[:x.shape[1], :], 0)
-    encoder_mask = self.encoder_mask[:, :x.shape[1]]
-    x = self.att_block(encoder_outputs=x, decoder_inputs=y,
-                       self_attention_mask=self.self_attention_mask,
-                       encoder_mask=encoder_mask,
-                       training=bool(tf.keras.backend.learning_phase()))
-    return x
-
-
 class CdfgReader(tf.keras.layers.Layer):
   def __init__(self, cdfgs, n_hidden, n_gnn_layers, dropout, activation="relu",
                final_activation="tanh", aggregate="mean", n_lstm_hidden=256,
-               n_lstm_layers=2, use_attention=False, max_n_nodes=4096,
-               dtype=tf.float32):
+               n_lstm_layers=2, use_attention=False, params=None):
     super().__init__()
     assert use_attention or aggregate in ["mean", "lstm"]
     self.n_hidden = n_hidden
@@ -144,57 +130,50 @@ class CdfgReader(tf.keras.layers.Layer):
     self.aggregate = aggregate
     self.use_attention = use_attention
 
-    self.cdfg_xs, self.cdfg_as = preprocess_cdfgs(cdfgs)
+    self.batch_xs, self.batch_as = preprocess_cdfgs(cdfgs)
     if self.use_attention:
-      ret = convert_batch_to_single_mode(self.cdfg_xs, self.cdfg_as)
-      self.cdfg_xs, self.cdfg_as, self.cdfg_lens, self.cdfg_offsets = ret
+      (self.single_xs, self.single_as, self.cdfg_lens, self.cdfg_offsets
+       ) = convert_batch_to_single_mode(self.batch_xs, self.batch_as)
 
-    self.gnn_input_layer = Dense(n_hidden, activation=activation,
-                                 dtype=dtype)
+    self.gnn_input_layer = Dense(n_hidden, activation=activation)
     self.gnn_layers = []
     self.gnn_dropouts = []
     self.gnn_input_dropout = Dropout(dropout)
     for _ in range(n_gnn_layers - 1):
       self.gnn_layers.append(
-          GCNConv(n_hidden, activation=activation, dtype=dtype))
+          GCNConv(n_hidden, activation=activation))
       self.gnn_dropouts.append(Dropout(dropout))
     self.gnn_layers.append(
-        GCNConv(n_hidden, activation=final_activation, dtype=dtype))
+        GCNConv(n_hidden, activation=final_activation))
     self.gnn_dropouts.append(Dropout(dropout))
 
     if self.use_attention:
+      n_att_hidden = params["n_att_hidden"]
+      n_att_layers = params["n_att_layers"]
+      max_n_nodes = params["max_n_nodes"]
+      pretrain_dir = params["pretrain_dir"]
       self.sent_vec_bottleneck = FeedForward(
-          1, n_hidden, n_out=n_hidden, dropout=dropout, dropout_at_end=True,
-          final_activation=final_activation)
-      self.att_module = AttentionModule(n_hidden, max_n_nodes, dropout, dtype)
-      self.att_pooler = FeedForward(1, n_hidden, n_out=n_hidden,
+          1, n_att_hidden, n_out=n_att_hidden, dropout=dropout,
+          dropout_at_end=True, final_activation=final_activation,
+          params=params)
+      self.node_embed_bottleneck = FeedForward(
+          1, n_hidden, n_out=n_att_hidden, dropout=dropout,
+          dropout_at_end=True, final_activation=final_activation,
+          params=params)
+      self.att_module = AttentionModule(
+          n_att_hidden, n_att_layers, max_n_nodes, pretrain_dir, params)
+      self.att_pooler = FeedForward(1, n_att_hidden, n_out=n_hidden,
                                     dropout=dropout, dropout_at_end=True,
-                                    final_activation=final_activation)
+                                    final_activation=final_activation,
+                                    params=params)
     else:  # When not using attention, we use a single layer for aggregating
       if aggregate == "lstm":
         cells = [
             tf.keras.layers.LSTMCell(
-                n_lstm_hidden, dropout=dropout, dtype=dtype)
+                n_lstm_hidden, dropout=dropout)
             for _ in range(n_lstm_layers)]
         self.aggregate_layer = tf.keras.layers.RNN(
             tf.keras.layers.StackedRNNCells(cells))
-
-  def place_special_tokens(self, x):
-    # CLS is prepended, and SEP is added in between modules.
-    sep_vec = tf.expand_dims(self.att_module.sep_tok, 0)
-    cls_vec = tf.expand_dims(self.att_module.cls_tok, 0)
-
-    x_per_graph = [cls_vec]  # Add CLS token at position 0
-    for i, offset in enumerate(self.cdfg_offsets):
-      start = offset
-      end = offset + self.cdfg_lens[i]
-      x_per_graph.append(x[start:end])
-      x_per_graph.append(sep_vec)  # Add separator token in between
-    x_per_graph = x_per_graph[:-1]  # Remove last separator token
-
-    # x: (num_nodes + num_special tokens, n_hidden)
-    x = tf.concat(x_per_graph, axis=0)
-    return x
 
   def gnn_stack_forward(self, cdfg_xs, cdfg_as):
     # GNN: input layer -> n - 1 GNN layers (relu) -> final GNN layer (tanh)
@@ -212,8 +191,11 @@ class CdfgReader(tf.keras.layers.Layer):
     # Prepare inputs
     # cdfg_xs (batch_size, num_nodes, num_features)
     # cdfg_as: (batch_size, num_nodes, num_nodes)
-    cdfg_xs = tf.gather_nd(self.cdfg_xs, inputs["graph"])
-    cdfg_as = tf.gather_nd(self.cdfg_as, inputs["graph"])
+    graph = inputs["graph"]
+    if len(graph.shape) == 1:
+      graph = tf.expand_dims(graph, axis=-1)
+    cdfg_xs = tf.gather_nd(self.batch_xs, inputs["graph"])
+    cdfg_as = tf.gather_nd(self.batch_as, inputs["graph"])
 
     # x: (batch_size, num_nodes, n_hidden)
     x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
@@ -236,32 +218,59 @@ class CdfgReader(tf.keras.layers.Layer):
     # cdfg_xs: (num_nodes, num_features)
     # cdfg_as: (num_nodes, num_nodes)
     # x: (num_nodes, n_hidden) <= all node embeddings
-    x = self.gnn_stack_forward(self.cdfg_xs, self.cdfg_as)
-    # CLS is prepended, and SEP is added in between modules.
-    # x: (num_nodes + num_special_toks, n_hidden)
-    x = self.place_special_tokens(x)
+    cdfg_xs, cdfg_as = self.single_xs, self.single_as
+    x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
+    x = self.node_embed_bottleneck(x)  # (batch_size, num_nodes, n_att_hidden)
 
     # y: (batch_size, sent_vec_hidden) <= CP information is fed
     y = inputs["cp_sent_vecs"]
     y = tf.expand_dims(y, axis=1)  # (batch_size, 1, sent_vec_hidden)
-    y = self.sent_vec_bottleneck(y)  # (batch_size, 1, n_hidden)
+    y = self.sent_vec_bottleneck(y)  # (batch_size, 1, n_att_module)
 
     # Add dimension to x to match size with y
-    # x: (batch_size, num_nodes + num_special_toks, n_hidden)
-    x = tf.expand_dims(x, axis=0)
+    x = tf.expand_dims(x, axis=0)  # x: (1, num_nodes, n_att_module)
+    # x: (batch_size, num_nodes, n_att_module)
     x = tf.tile(x, multiples=[tf.shape(y)[0], 1, 1])
-
-    cp_embed = self.att_module({"x": x, "y": y})  # (batch_size, 1, n_hidden)
-    cp_embed = cp_embed[:, 0, :]  # (batch_size, n_hidden)
+    # Split output per graph lengths
+    # x_list = [(batch_size, ?, n_att_module), ...]
+    x_list = tf.split(x, self.cdfg_lens, axis=1)
+    # cp_embed: (batch_size, num_nodes, n_att_module)
+    cp_embed = self.att_module(
+        {"x": x_list, "y": y, "cp_idx": inputs["coverpoint"]})
+    cp_embed = cp_embed[:, 0, :]  # (batch_size, n_att_module)
+    # cp_embed = tf.concat([cp_embed, y], axis=-1)  # (batch_size, n_hidden)
     cp_embed = self.att_pooler(cp_embed)  # (batch_size, n_hidden)
+
     return cp_embed
+
+  def pretrain_forward(self, batch_size=16, cdfgs=None, percent_graphs=0.85):
+    if cdfgs is not None:
+      cdfg_xs, cdfg_as, cdfg_lens = cdfgs
+    else:
+      cdfg_xs, cdfg_as = self.single_xs, self.single_as
+      cdfg_lens = self.cdfg_lens
+    x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
+    x = tf.expand_dims(x, axis=0)  # x: (1, num_nodes, n_att_module)
+    x_list = tf.split(x, cdfg_lens, axis=1)
+
+    # Pick a random subset of graphs
+    indices = list(range(len(x_list)))
+    random.shuffle(indices)
+    indices = indices[:int(len(x_list) * percent_graphs)]
+    x_list = [x_list[i] for i in indices]
+    cdfg_lens = [cdfg_lens[i] for i in indices]
+    x = tf.concat(x_list, axis=1)  # (1, num_nodes, n_att_module)
+    x = self.node_embed_bottleneck(x)  # (1, num_nodes, n_att_hidden)
+    # x: (batch_size, num_nodes, n_att_module)
+    x = tf.tile(x, multiples=[batch_size, 1, 1])
+    # Split output per graph lengths
+    # x_list = [(batch_size, ?, n_att_module), ...]
+    x_list = tf.split(x, cdfg_lens, axis=1)
+    y, y_labels = self.att_module.pretrain_forward(x_list)
+    return y, y_labels
 
   def call(self, inputs):
     # Make this work with generated dataset with legacy datagen code.
-    for key in ["graph", "coverpoint"]:
-      if len(inputs[key].shape) == 1:
-        inputs[key] = tf.expand_dims(inputs[key], axis=-1)
-
     if self.use_attention:
       return self.attention_forward(inputs)
     else:
