@@ -182,12 +182,14 @@ class AttentionModule(tf.keras.layers.Layer):
 
   def call(self, inputs):
     x, y = inputs["x"], inputs["y"]
-    if self.att_decoder is not None:
+    use_encoder = self.att_encoder is not None
+    use_decoder = self.att_decoder is not None
+    if use_decoder:
       x.append(y)  # If decoder isn't used, add y to input.
 
     x, global_att_mask, batch_size, mask_dtype = self.prepare_att_input(x)
 
-    if self.att_decoder is None:
+    if not use_decoder:
       query_len = tf.shape(x[-1])[1] + 1
     else:
       query_len = 0
@@ -197,24 +199,24 @@ class AttentionModule(tf.keras.layers.Layer):
         tf.ones(shape=(batch_size, query_len), dtype=mask_dtype)],
         axis=1)
 
-    if self.att_encoder is not None and self.att_decoder is not None:
+    if use_encoder and use_decoder:
       # In this case as all rows in x are the same (no query in x, only cdfg
       # nodes) we can just use the first row to save memory.
       x = x[:1, ...]
       global_att_mask = global_att_mask[:1, ...]
       token_type_ids = token_type_ids[:1, ...]
 
-    if self.att_encoder is not None:
+    if use_encoder:
       x = self.att_encoder(input_ids=None, inputs_embeds=x,
                            token_type_ids=token_type_ids,
                            global_attention_mask=global_att_mask)
-      if self.att_decoder is None:
+      if use_decoder:
         # Encoder output is returned if no decoder is used.
         return tf.expand_dims(x.pooler_output, axis=1)
       else:
         x = x.last_hidden_state  # This will be used as input to decoder
 
-    if self.att_encoder is not None and self.att_decoder is not None:
+    if use_encoder and use_decoder:
       # Revert batch size dimension
       x = tf.tile(x, multiples=[batch_size, 1, 1])
 
