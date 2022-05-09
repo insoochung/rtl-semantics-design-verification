@@ -5,32 +5,10 @@ from bs4 import BeautifulSoup
 import re
 import json
 import yaml
+import itertools
 
 BRANCH_TEMP_FILENAME = ".branch_temp.html"
 TABLE_TEMP_FILENAME = ".table_temp.html"
-
-
-def extract_from_directory(report_dir, output_dir="", in_place=False):
-  """Extract branch coverage data from a directory of coverage reports"""
-  assert in_place or output_dir, "Please specify an output directory"
-  for root, _, filenames in os.walk(report_dir):
-    if in_place:
-      output_dir = os.path.join(root, "extracted")
-    if os.path.exists(output_dir):
-      print(f"Output directory {output_dir} already exists, so skipping...\n")
-      continue
-    for filename in filenames:
-      if not filename.endswith(".html") or not filename.startswith("mod"):
-        continue
-      cov_name = filename[:-5]  # removes trailing .html
-      report_path = os.path.join(root, filename)
-      if write_branch_to_temp(report_path, output_dir) == 1:
-        print(f"Branch found in: {report_path}")
-        branch_dict = set_branch_dict(output_dir)
-        write_yaml_file(branch_dict, output_dir, cov_name=cov_name)
-      else:
-        print(f"Branch or module name not found in: {report_path}")
-      cleanup_temp_files(output_dir)
 
 
 def create_branch_temp(output_dir):
@@ -93,9 +71,9 @@ def set_branch_dict(output_dir):
   # Open the temporary file which has the coverage table
   temp_filepath = os.path.join(output_dir, TABLE_TEMP_FILENAME)
   with open(temp_filepath, "r") as file:
-    parsed_html = BeautifulSoup(file.read(), "html.parser")
+    soup = BeautifulSoup(file.read(), "html.parser")
 
-  tables = parsed_html.find_all("table")
+  tables = soup.find_all("table")
   for table in tables:
     rows = table.find_all("tr")
     for row in rows:
@@ -108,14 +86,14 @@ def set_branch_dict(output_dir):
   return branch_dict
 
 
-def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
+def write_branch_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
   """Write the branch coverage data to a YAML file"""
   with open(os.path.join(output_dir, BRANCH_TEMP_FILENAME), "r") as file:
-    parsed_html = BeautifulSoup(file.read(), "html.parser")
-  module_name = parsed_html.find_all("span", class_="titlename")
+    soup = BeautifulSoup(file.read(), "html.parser")
+  module_name = soup.find_all("span", class_="titlename")
   module_name = module_name[0].find("a").text
-  code_lines = parsed_html.find_all("pre")
-  tables = parsed_html.find_all("table", class_="noborder")
+  code_lines = soup.find_all("pre")
+  tables = soup.find_all("table", class_="noborder")
   yaml_entry_strs = []
   assert len(tables) == len(code_lines), (
       f"Mismatch between number of tables and parsed data: "
@@ -225,15 +203,175 @@ def write_yaml_file(branch_dict, output_dir, cov_name="default_cov"):
 
 def cleanup_temp_files(output_dir):
   """Remove the temporary files"""
-  for filename in os.listdir(output_dir):
-    if filename.endswith("_temp.html"):
-      temp_fp = os.path.join(output_dir, filename)
-      if os.path.exists(temp_fp):
-        os.remove(temp_fp)
+  if os.path.exists(output_dir):
+    for filename in os.listdir(output_dir):
+      if filename.endswith("_temp.html"):
+        temp_fp = os.path.join(output_dir, filename)
+        if os.path.exists(temp_fp):
+          os.remove(temp_fp)
+
+
+def extract_from_directory(report_dir, output_dir="", in_place=False,
+                           coverage_type="branch"):
+  """Extract branch coverage data from a directory of coverage reports"""
+  assert in_place or output_dir, "Please specify an output directory"
+  file_prefix = "mod" if coverage_type == "branch" else "grp"
+  for root, _, filenames in os.walk(report_dir):
+    if in_place:
+      output_dir = os.path.join(root, "extracted")
+    for filename in filenames:
+      if (not filename.endswith(".html")
+              or not filename.startswith(file_prefix)):
+        continue
+      cov_name = filename[:-5]  # removes trailing .html
+      report_path = os.path.join(root, filename)
+      extract_from_file(report_path, output_dir, coverage_type, cov_name)
+
+
+def get_cross_coverage_attr_names(row):
+  attr_names = []
+  cols = row.findChildren("td")
+  for col in cols:
+    if col.text in ["COUNT", "AT LEAST"]:
+      break
+    attr_names.append(col.text)
+  return attr_names
+
+
+def get_uncovered_bin_names(col, coverage, attr_name=None):
+  bin_name = str(col.string)
+  if bin_name.startswith("["):
+    bin_name = bin_name[1:-1]  # Unwrap []
+    if "," in bin_name:
+      bin_names = [x.strip() for x in bin_name.split(",")]
+    elif "-" in bin_name:
+      start, end = [x.strip() for x in bin_name.split("-")]
+      assert start.startswith("auto[") and end.startswith("auto["), (
+          f"Assumption does not hold for {bin_name}")
+      start_idx = int(start[5:-1])
+      end_idx = int(end[5:-1])
+      bin_names = [f"auto[{i}]" for i in range(start_idx, end_idx + 1)]
+    else:
+      bin_names = [bin_name]
+  else:
+    if "*" in bin_name:
+      for key in coverage.keys():
+        if attr_name in key:
+          bin_names = list(coverage[key].keys())
+          break
+    else:
+      bin_names = [bin_name]
+  return bin_names
+
+
+def extract_functional_coverage(report_path, output_dir,
+                                cov_name="default_func_cov"):
+  with open(report_path, "r") as file:
+    soup = BeautifulSoup(file.read(), "html.parser")
+  # var_table = soup.find("span", text=re.compile(
+  #     r"Variables for Group.*")).find_next("table")
+  # var_summary = {}
+  # for row in var_table.find_all("tr")[1:]:
+  #   cols = row.find_all("td")
+  #   var_summary[cols[0].text.strip()] = int(cols[1].text)
+  print(f"Extracting functional coverage from: {report_path}")
+  coverpoints = [
+      span for span in soup.find_all("span", attrs={"id": re.compile(r".*")})
+      if "Group" not in span.text]
+  coverpoint_ids = set(coverpoint["id"] for coverpoint in coverpoints)
+  coverage = {}
+  for coverpoint in coverpoints:
+    coverpoint_id = coverpoint["id"]
+    coverage[coverpoint_id] = {}
+    next_span = coverpoint
+    covered_tables = []
+    uncovered_tables = []
+    while True:  # Get coverage table for this coverpoint
+      next_span = next_span.find_next("span")
+      if next_span is None:
+        break
+      next_span_id = next_span["id"] if "id" in next_span.attrs else None
+      if next_span_id in coverpoint_ids:
+        break
+      if next_span.text in ["Covered bins", "Bins"]:
+        covered_tables.append(next_span.find_next("table"))
+      elif next_span.text in ["Uncovered bins", "Element holes"]:
+        uncovered_tables.append(next_span.find_next("table"))
+
+    for table in covered_tables:  # Covered tables
+      attr_names = []
+      for row in table.findChildren("tr"):
+        if row["class"][0] == "sortablehead":
+          if "Cross" in coverpoint.text:
+            # Get bin names differently if cross coverage
+            attr_names = get_cross_coverage_attr_names(row)
+          continue
+        cols = row.findChildren("td")
+        if len(attr_names) == 0:
+          cnt_idx = 1
+          bin_name = str(cols[0].string)
+        else:
+          cnt_idx = len(attr_names)
+          bin_name = ".".join([cols[i].string for i in range(len(attr_names))])
+        assert not bin_name.startswith("["), bin_name
+        assert not any(x in bin_name for x in ["*", ","]), bin_name
+        coverage[coverpoint_id][bin_name] = int(
+            cols[cnt_idx].string)
+      if len(attr_names):
+        coverage[coverpoint_id]["cross_attributes"] = attr_names
+
+    for table in uncovered_tables:
+      attr_names = []
+      for row in table.findChildren("tr"):
+        if row["class"][0] == "sortablehead":
+          if "Cross" in coverpoint.text:
+            # Get bin names differently if cross coverage
+            attr_names = get_cross_coverage_attr_names(row)
+          continue
+        cols = row.findChildren("td")
+        if len(attr_names) == 0:
+          bin_names = get_uncovered_bin_names(cols[0], coverage)
+        else:
+          all_bin_names = []
+          for i, attr_name in enumerate(attr_names):
+            bin_names = get_uncovered_bin_names(cols[i], coverage, attr_name)
+            all_bin_names.append(bin_names)
+          all_bin_names = [".".join(s)
+                           for s in itertools.product(*all_bin_names)]
+          bin_names = all_bin_names
+
+        for bin_name in bin_names:
+          coverage[coverpoint_id][bin_name] = 0
+
+      if len(attr_names):
+        coverage[coverpoint_id]["cross_attributes"] = attr_names
+
+  yaml_path = os.path.join(output_dir, f"{cov_name}.yaml")
+  os.makedirs(output_dir, exist_ok=True)
+  print(f"Writing coverage to: {yaml_path}")
+  with open(yaml_path, "w") as file:
+    yaml.dump(coverage, file)
+
+
+def extract_from_file(report_path: str, output_dir: str,
+                      coverage_type: str = "branch",
+                      cov_name: str = "default_coverage"):
+  if coverage_type == "branch":
+    if write_branch_to_temp(report_path, output_dir) == 1:
+      print(f"Branch found in: {report_path}")
+      branch_dict = set_branch_dict(output_dir)
+      write_branch_yaml_file(branch_dict, output_dir, cov_name=cov_name)
+    else:
+      print(f"Branch or module name not found in: {report_path}")
+  elif coverage_type == "functional":
+    extract_functional_coverage(report_path, output_dir, cov_name)
+  else:
+    raise NotImplementedError(f"Coverage type {coverage_type} not supported")
+  cleanup_temp_files(output_dir)
 
 
 def extract(report_path: str = "", report_dir: str = "", output_dir: str = "",
-            in_place: bool = False):
+            in_place: bool = False, coverage_type: str = "branch"):
   """Extract coverage from the HTML reports"""
   if report_path and report_dir or (not report_path and not report_dir):
     print("Please specify either a report path or a report directory "
@@ -243,14 +381,10 @@ def extract(report_path: str = "", report_dir: str = "", output_dir: str = "",
     output_dir = os.path.join(os.getcwd(), "branch_cov")
 
   if report_dir:
-    extract_from_directory(report_dir, output_dir, in_place)
+    extract_from_directory(report_dir, output_dir, in_place, coverage_type)
   else:
     assert not in_place, "In-place extraction is not supported for single file"
-    write_branch_to_temp(report_path, output_dir)
-    branch_dict = set_branch_dict(output_dir)
-    write_yaml_file(branch_dict, output_dir)
-  if not in_place:
-    cleanup_temp_files(output_dir)
+    extract_from_file(report_path, output_dir, coverage_type)
 
 
 def main():
@@ -267,9 +401,13 @@ def main():
   parser.add_argument("-ip", "--in_place", action="store_true", default=False,
                       help=("Whether to place the parsed coverage YAML files "
                              "in the same directory as the original reports"))
+  parser.add_argument("-ct", "--coverage_type", default="branch",
+                      choices=["branch", "functional"],
+                      help="Type of coverage to extract")
 
   args = parser.parse_args()
-  extract(args.report_path, args.report_dir, args.output_dir, args.in_place)
+  extract(args.report_path, args.report_dir, args.output_dir, args.in_place,
+          args.coverage_type)
 
 
 if __name__ == "__main__":
