@@ -173,10 +173,12 @@ def load_element_spec(tf_data_dir):
   return es
 
 
-def get_fake_inputs(tf_data_dir, n_samples=1):
+def get_fake_inputs(tf_data_dir, n_samples=2):
   es = load_element_spec(tf_data_dir)[0]
-  shapes = {k: n_samples + v.shape for k, v in es.items()}
-  return {k: np.zeros(shape=v) for k, v in shapes.items()}
+  es_info = {k: ([n_samples] + (list(v.shape) if v.shape != () else [1]),
+                 v.dtype) for k, v in es.items()}
+  ret = {k: tf.zeros(shape=v[0], dtype=v[1]) for k, v in es_info.items()}
+  return ret
 
 
 def load_dataset(tf_data_dir):
