@@ -72,7 +72,7 @@ def maybe_init_or_load_model(model, params):
   ckpt_name = params["ckpt_name"]
   ckpt_path = os.path.join(ckpt_dir, ckpt_name)
   if os.path.exists(ckpt_path):
-    model.load(ckpt_path)
+    model.load_weights(ckpt_path)
   elif params["warmstart_dir"]:
     fake_inputs = get_fake_inputs(params["tf_data_dir"])
     model(fake_inputs)  # Init model to be able to load weights
@@ -184,8 +184,9 @@ def set_model_flags(parser, set_required=False):
                       help="Size of hidden dimension in the LSTM.")
   parser.add_argument("--dropout", type=float, default=0.1,
                       help="Dropout rate.")
-  parser.add_argument("--lr", type=float, default=0.001, help="Learning rate.")
-  parser.add_argument("--lr_scheme", type=str, default="warmup_then_decay",
+  parser.add_argument("--lr", type=float, default=0.0003,
+                      help="Learning rate.")
+  parser.add_argument("--lr_scheme", type=str, default="constant",
                       help="Learning rate scheme.")
   parser.add_argument("--decay_rate", type=float, default=0.9,
                       help="Learning rate decay rate.")
@@ -238,6 +239,8 @@ def set_model_flags(parser, set_required=False):
   parser.add_argument("--design_feedback_type",
                       type=str, default="cdfg_reader")
   parser.add_argument("--n_max_coverpoints", type=int, default=2000)
+  parser.add_argument("--cdfg_cutoff", dest="cdfg_cutoff",
+                      action="store_true", default=False)
 
 
 if __name__ == "__main__":

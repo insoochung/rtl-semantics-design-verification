@@ -129,23 +129,33 @@ class CdfgReader(tf.keras.layers.Layer):
     self.n_gnn_layers = n_gnn_layers
     self.aggregate = aggregate
     self.use_attention = use_attention
+    self.cdfg_cutoff = params["cdfg_cutoff"]
 
     self.batch_xs, self.batch_as = preprocess_cdfgs(cdfgs)
     if self.use_attention:
       (self.single_xs, self.single_as, self.cdfg_lens, self.cdfg_offsets
        ) = convert_batch_to_single_mode(self.batch_xs, self.batch_as)
 
-    self.gnn_input_layer = Dense(n_hidden, activation=activation)
-    self.gnn_layers = []
-    self.gnn_dropouts = []
-    self.gnn_input_dropout = Dropout(dropout)
-    for _ in range(n_gnn_layers - 1):
+    if self.cdfg_cutoff:
+      print(f"NOTE: Cutoffing cdfgs in the CdfgReader...")
+      max_n_nodes = params["max_n_nodes"]
+      self.cutoff_embedding = tf.keras.layers.Embedding(max_n_nodes, n_hidden)
+      (_, _, self.cdfg_lens, self.cdfg_offsets
+       ) = convert_batch_to_single_mode(self.batch_xs, self.batch_as)
+      self.cdfg_lens_const = tf.constant(self.cdfg_lens, dtype=tf.int32)
+      self.cdfg_offsets_const = tf.constant(self.cdfg_offsets, dtype=tf.int32)
+    else:
+      self.gnn_input_layer = Dense(n_hidden, activation=activation)
+      self.gnn_layers = []
+      self.gnn_dropouts = []
+      self.gnn_input_dropout = Dropout(dropout)
+      for _ in range(n_gnn_layers - 1):
+        self.gnn_layers.append(
+            GCNConv(n_hidden, activation=activation))
+        self.gnn_dropouts.append(Dropout(dropout))
       self.gnn_layers.append(
-          GCNConv(n_hidden, activation=activation))
+          GCNConv(n_hidden, activation=final_activation))
       self.gnn_dropouts.append(Dropout(dropout))
-    self.gnn_layers.append(
-        GCNConv(n_hidden, activation=final_activation))
-    self.gnn_dropouts.append(Dropout(dropout))
 
     if self.use_attention:
       n_att_hidden = params["n_att_hidden"]
@@ -176,6 +186,7 @@ class CdfgReader(tf.keras.layers.Layer):
             tf.keras.layers.StackedRNNCells(cells))
 
   def gnn_stack_forward(self, cdfg_xs, cdfg_as):
+    assert not self.cdfg_cutoff
     # GNN: input layer -> n - 1 GNN layers (relu) -> final GNN layer (tanh)
     # x: (batch_size, num_nodes, n_hidden)
     x = self.gnn_input_layer(cdfg_xs)
@@ -187,18 +198,38 @@ class CdfgReader(tf.keras.layers.Layer):
     x += to_add  # Residual connection, (batch_size, num_nodes, n_hidden)
     return x
 
+  def get_cutoff_embeddings(self, inputs):
+    offsets = tf.gather(self.cdfg_offsets_const,
+                        inputs["graph"])  # [batch_size, 1]
+    indices = tf.range(tf.shape(self.batch_xs)[1])  # [max_graph_len]
+    indices = tf.tile(  # [batch_size, max_graph_len]
+        tf.expand_dims(indices, 0), [tf.shape(inputs["graph"])[0], 1])
+    indices += offsets  # [batch_size, max_graph_len]
+    graph_len = tf.gather(self.cdfg_lens_const, inputs["graph"])
+    # [batch_size, max_graph_len, n_hidden]
+    res = self.cutoff_embedding(indices)
+    mask = tf.sequence_mask(tf.reshape(graph_len, shape=[-1]),
+                            maxlen=tf.shape(self.batch_xs)[1],
+                            dtype=tf.float32)
+    mask = tf.expand_dims(mask, axis=-1)  # [batch_size, max_graph_len, 1]
+    res *= mask  # [batch_size, max_graph_len, n_hidden]
+    return res
+
   def aggregate_forward(self, inputs):
     # Prepare inputs
     # cdfg_xs (batch_size, num_nodes, num_features)
     # cdfg_as: (batch_size, num_nodes, num_nodes)
-    graph = inputs["graph"]
-    if len(graph.shape) == 1:
-      graph = tf.expand_dims(graph, axis=-1)
-    cdfg_xs = tf.gather_nd(self.batch_xs, inputs["graph"])
-    cdfg_as = tf.gather_nd(self.batch_as, inputs["graph"])
+    if not self.cdfg_cutoff:
+      graph = inputs["graph"]
+      if len(graph.shape) == 1:
+        graph = tf.expand_dims(graph, axis=-1)
+      cdfg_xs = tf.gather_nd(self.batch_xs, inputs["graph"])
+      cdfg_as = tf.gather_nd(self.batch_as, inputs["graph"])
 
-    # x: (batch_size, num_nodes, n_hidden)
-    x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
+      # x: (batch_size, num_nodes, n_hidden)
+      x = self.gnn_stack_forward(cdfg_xs, cdfg_as)
+    else:  # Cut off cdfg information
+      x = self.get_cutoff_embeddings(inputs)
 
     # Aggregate final output
     cp_masks = inputs["coverpoint_mask"]  # (batch_size, num_nodes)
