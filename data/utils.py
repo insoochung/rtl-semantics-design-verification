@@ -10,6 +10,9 @@ import tqdm
 import numpy as np
 
 
+CODEBERT_MODEL_NAME = "microsoft/codebert-base-mlm"
+
+
 def load_yaml(filepath: str):
   """Loads a YAML file from the given filepath."""
   with codecs.open(filepath, "r", encoding="utf-8") as f:
@@ -22,6 +25,15 @@ def load_pkl(pkl_file: str):
   with codecs.open(pkl_file, "rb") as f:
     ret = pickle.load(f)
   return ret
+
+
+def _load_s2v_model(model_name=CODEBERT_MODEL_NAME):
+  from transformers import AutoModel, AutoTokenizer
+  print("Loading S2V model...")
+  model = AutoModel.from_pretrained(model_name)
+  tokenizer = AutoTokenizer.from_pretrained(model_name)
+  print("S2V model loaded!")
+  return model, tokenizer
 
 
 class TestParameterCoverageHandler:
@@ -118,11 +130,7 @@ class NodeVocab:
     return len(self.vocab["nodes"]) > 0
 
   def load_s2v_model(self, model_name):
-    from transformers import AutoModel, AutoTokenizer
-    print("Loading S2V model...")
-    model = AutoModel.from_pretrained(model_name)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    print("S2V model loaded!")
+    model, tokenizer = _load_s2v_model(model_name)
     self.s2v = {"model": model, "tokenizer": tokenizer}
 
   def add_node_info(self, element_name, element_type, element_info):
@@ -175,6 +183,7 @@ class BranchVocab:
     self.branches = []
     self.module_index_to_node_offset = []
     self.signature_to_index = {}
+    self.s2v = {}
     if vocab_filepath and os.path.exists(vocab_filepath):
       self.load_from_file()
 
@@ -221,13 +230,17 @@ class BranchVocab:
         return module_idx
     assert False, f"{first_nidx} not found within {offset_range}"
 
-  def get_mask(self, branch_index: int, module_index: int = None,
-               mask_length: int = None, return_module_index: bool = False):
+  def get_node_indices(self, branch_index: int, module_index: int = None):
     if not module_index:
       module_index = self.get_module_index(branch_index)
     branch_signature = self.get_branch_signature_tuple(branch_index)
     node_offset = self.module_index_to_node_offset[module_index]
     node_indices = [i - node_offset for i in branch_signature]
+    return node_indices
+
+  def get_mask(self, branch_index: int, module_index: int = None,
+               mask_length: int = None, return_module_index: bool = False):
+    node_indices = self.get_node_indices(branch_index, module_index)
     if not mask_length:
       mask_length = node_indices[-1] + 1
     mask = np.zeros(mask_length, dtype=np.float32)
@@ -235,6 +248,21 @@ class BranchVocab:
     if return_module_index:
       return {"mask": mask, "module_index": module_index}
     return mask
+
+  def get_sentence_vector(self, nodes: list, branch_index: int,
+                          module_index: int = None):
+    if not self.s2v:
+      self.s2v["model"], self.s2v["tokenizer"] = _load_s2v_model(
+          CODEBERT_MODEL_NAME)
+    node_indices = self.get_node_indices(branch_index, module_index)
+    node_text = []
+    for i in node_indices:
+      node_text.append(" ".join(nodes[i].text.strip().split()))
+    branch_text = " ".join(node_text)
+    toks = self.s2v["tokenizer"](branch_text, return_tensors="pt")
+    vec = self.s2v["model"](**toks)
+    vec = vec["pooler_output"].detach().numpy().flatten()
+    return vec
 
 
 class TestParameterVocab:

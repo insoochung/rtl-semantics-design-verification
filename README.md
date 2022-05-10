@@ -18,7 +18,15 @@ pip install -r requirements.txt
 
 ### Generate data
 
-See [this document](./docs/data_generation.md) for details.
+1. See [this document](./docs/data_generation.md) to parse design and generate coverage information.
+2. Perform this step to generate data for NN training and evaluation.
+
+```bash
+python nn/datagen.py
+  --graph_dir $DATA_DIR/generated/d2v_data/graph \ # See ./docs/data_generation.md to generate this
+  --tp_cov_dir $DATA_DIR/generated/d2v_data/tp_cov \ # See ./docs/data_generation.md to generate this
+  --tf_data_dir $DATA_DIR/nn_dataset # Where to output the final data.
+```
 
 ### Train model
 
@@ -34,5 +42,5 @@ python nn/train.py \
   --append_seed_to_ckpt_dir \ # This will add seed information to the checkpoint directory name
   --ckpt_dir $DATA/ckpts/split_$SPLIT/ \  # Where to save model checkpoints
   --tf_data_dir $DATA_DIR/nn_dataset \
-  --generate_data # Previously generated data is processed to fit NN data pipeline, only required once
+  --use_attention  # Set if you want to use attention in the model
 ```

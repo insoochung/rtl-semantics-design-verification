@@ -39,7 +39,7 @@ This step will convert AST json files generated from previous step 2 to CDFGs.
 python cdfg/constructor.py \
   --parsed_rtl_dir designs/ibex_v1/parsed_rtl/ \
   --rtl_dir designs/ibex_v1/ibex/rtl \
-  --output_dir $DATA_DIR/generated/cdfg
+  --output_dir $DATA_DIR/d2v_data/graph
 ```
 
 ## 4. Matching branches to CDFG subpaths
@@ -52,19 +52,19 @@ python coverage/extract_from_urg.py \
   --report_dir ~/generated/simulated
 ```
 
-## 5. Generate training and test data
+## 5. Vectorize CDFG and branch coverage information
 
-This final step creates data in format required for design2vec training.
+This final step vectorizes data so it's ready to be fed to NN.
 
 ```bash
 # Vectorize CDFG to feed to GCN
 python data/cdfg_datagen.py \
-  --design_graph_filepath $DATA_DIR/generated/cdfgs/design_graph.pkl \
+  --design_graph_filepath $DATA_DIR/d2v_data/graph/design_graph.pkl \
   --output_dir $DATA_DIR/generated/d2v_data/graph
 
 # Vectorize test parameters and coverage data to feed to NN trainling loop
 python data/tp_cov_datagen.py \
-  --design_graph_dir $DATA_DIR/generated/cdfgs/ \
+  --design_graph_dir $DATA_DIR/d2v_data/graph/ \
   --test_templates_dir designs/ibex_v1/test_templates/ \
   --output_dir $DATA_DIR/generated/d2v_data/tp_cov
 ```
