@@ -9,8 +9,8 @@ from nn.att_layers import init_longformer
 
 
 if __name__ == "__main__":
-  parser = argparse.ArgumentParser()
-  set_model_flags(parser, set_required=False)
-  args = vars(parser.parse_args())
-  print(f"Received arguments: {args}")
-  run_with_seed(args, run_fn=init_longformer)
+    parser = argparse.ArgumentParser()
+    set_model_flags(parser, set_required=False)
+    args = vars(parser.parse_args())
+    print(f"Received arguments: {args}")
+    run_with_seed(args, run_fn=init_longformer)
