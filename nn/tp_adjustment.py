@@ -7,18 +7,21 @@ import json
 import yaml
 import argparse
 from glob import glob
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
 from data.utils import TestParameterVocab, BranchVocab
 from nn.models import Design2VecBase
 from data.cdfg_datagen import GraphHandler
 from cdfg.constructor import DesignGraph, Module
 from nn.train import convert_to_tf_dataset, get_d2v_model
 
-def output_yaml(vocab, tp, cp_idx):
-  de_normalized_tp = vocab.de_normalize(tp)
+def output_yaml_from_test_vector(vocab, tp, cp_idx, from_vector=False):
+  if from_vector:
+    tp = vocab.get_test_parameters_from_vector(tp)
   adjusted_test_name = f"adjusted_test_{cp_idx}"
   tp_str = f"description: {adjusted_test_name}\n gcc_opts: -mno-strict-align \n"
-  tp_str += "\n".join(f"+{k}={v}" for k, v in de_normalized_tp.items())
+  tp_str += "\n".join(f"+{k}={v}" for k, v in tp.items())
   gen_opts_str = [" " * 4 + l for l in tp_str.split("\n")]
   gen_opts_str = "\n".join(["  gen_opts: >"] + gen_opts_str)
   gen_opts_str += f"""
@@ -34,9 +37,13 @@ def output_yaml(vocab, tp, cp_idx):
   with open(f"{adjusted_test_name}.yaml", "w+") as f:
     f.write(gen_opts_str)
 
-def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx, learning_rate=1, step_threshold=50):
-  vocab_files = glob(os.path.join(tp_cov_dir, "vocab.*.yaml"))
-  vocab = TestParameterVocab(vocab_filepath=vocab_files[1])
+def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx, learning_rate=1,
+              step_threshold=50, is_hit_threshold=0.9,):
+  assert not (step_threshold is None and is_hit_threshold is None), (
+      "Either step_threshold or is_hit_threshold must be set")
+  vocab_files = glob(os.path.join(tp_cov_dir, "vocab.[0-9]*.yaml"))
+  assert len(vocab_files) == 1
+  vocab = TestParameterVocab(vocab_filepath=vocab_files[0])
   tp_size = len(vocab.tokens)
 
   tp = np.random.rand(tp_size)
@@ -53,32 +60,25 @@ def adjust_tp(graph_dir, ckpt_dir, tp_cov_dir, cp_idx, learning_rate=1, step_thr
   model.load_weights(os.path.join(ckpt_dir, "model.ckpt"))
 
   steps = 0
-  is_hit = 0
-  for step in range(step_threshold):
-    if step == step_threshold - 1:
-      while(is_hit < .9 and steps < 1000):
-        x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
-        with tf.GradientTape() as g:
-          g.watch(x)
-          y = model.call(x)
-          loss = y[[0]] - 1
-        is_hit = y[[0]]
-        dy_dx = g.gradient(loss, x)["test_parameters"]
-        tp += dy_dx * learning_rate
-        steps += 1
-        tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
-    else:
-      x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
-      with tf.GradientTape() as g:
-        g.watch(x)
-        y = model.call(x)
-        loss = y[[0]] - 1
-      is_hit = y[[0]]
-      dy_dx = g.gradient(loss, x)["test_parameters"]
-      tp += dy_dx * learning_rate
-      steps += 1
-      tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
-  output_yaml(vocab, tp, cp_idx)
+  while True:
+    x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
+    with tf.GradientTape() as g:
+      g.watch(x)
+      y = model.call(x)
+      loss = y[[0]] - 1
+    is_hit = y[[0]]
+
+    dy_dx = g.gradient(loss, x)["test_parameters"]
+    tp += dy_dx * learning_rate
+    tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
+    tp = vocab.normalize_test_params_vector(tp)
+    steps += 1
+    if step_threshold and steps > step_threshold:
+      break
+    if is_hit_threshold and is_hit > is_hit_threshold:
+      break
+  output_yaml_from_test_vector(vocab, tp, cp_idx, from_vector=True)
+
 def update_tp(tp, cp_idx, graphs, bvocab, tp_size):
     midx = bvocab.get_module_index(cp_idx)
     mask_length = graphs[0].n_nodes
@@ -95,11 +95,11 @@ def update_tp(tp, cp_idx, graphs, bvocab, tp_size):
       "coverpoint": cp.reshape(1,)
     }
 
-    #formating from dictionary of numpy arrays to dictionary of tensors
+    # Formating from dictionary of numpy arrays to dictionary of tensors
     tf_ret = ret
     for k, v in tf_ret.items():
       tf_ret[k] = tf.constant(v, dtype=v.dtype)
-    
+
     return tf_ret
 if __name__ == "__main__":
     tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -107,15 +107,17 @@ if __name__ == "__main__":
     parser.add_argument("-gd", "--graph_dir", type=str, required=True,
                       help="Directory of the graph dataset.")
     parser.add_argument("-cd", "--ckpt_dir", type=str, required=True,
-                      help="Directory to save the checkpoints.")       
+                      help="Directory to save the checkpoints.")
     parser.add_argument("-td", "--tp_cov_dir", type=str,
                       help="Directory of the test parameter coverage dataset.")
     parser.add_argument("-cp", "--cp_idx", type=int,
                       help="Coverpoint index.")
-    parser.add_argument("-lr", "--learning_rate", type=int,
-                      help="Coverpoint index.")
-    parser.add_argument("-st", "--step_threshold", type=int,
-                      help="Coverpoint index.")
+    parser.add_argument("-lr", "--learning_rate", type=int, learning_rate=0.1,
+                      help="Learning rate")
+    parser.add_argument("-st", "--step_threshold", type=int, default=None,
+                      help="Max steps to iterate")
+    parser.add_argument("--is_hit_threshold", type=float, default=0.8,
+                      help="Threshold to determine if the test is hit")
     args = parser.parse_args()
     adjust_tp(**vars(args))
 

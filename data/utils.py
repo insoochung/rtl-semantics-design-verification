@@ -325,57 +325,103 @@ class TestParameterVocab:
     self.tokens = vocab
     self.meta = test_parameters
 
+  def get_test_parameters_from_vector(self, tp, return_one_hots=False):
+    norm = []
+    for _tp in tp:
+      norm.append(_tp if 0 <= _tp <= 1 else 1 if _tp > 1 else 0)
+    test_params = {}
+    one_hots = {}
 
-  def de_normalize(self, tp):
-    test_parameters_vec = {}
     for token in self.tokens:
       key = token["key"]
       idx = token["idx"]
-      if "name" in key:
-        begin, end = key.split("+")
-        test_parameters_vec[begin] = end
-        continue 
-      if token["is_one_hot"]:
-        assert token["type"] == "choice"
-        key, one_hot_val = key.split("+")
-        test_parameters_vec[key] = int(tp[idx] == one_hot_val)
-        continue
-      tp_elem = round(tp[idx])
       if token["type"] == "int":
-        tp_elem = round(tp_elem * (token["max_val"] - token["min_val"] + 1e-7) + token["min_val"])
-      test_parameters_vec[key] = tp_elem
-    return test_parameters_vec
-  
-  def vectorize_test(self, test_filepath: str, normalize=True):
+        tp_elem = round(
+          norm[idx] * (token["max_val"] - token["min_val"] + 1e-7)
+          + token["min_val"])
+      elif token["type"] == "bool":
+        tp_elem = bool(norm[idx] > 0.5)
+      elif token["type"] == "choice": # One-hot case, collect all choices
+        choice_key, choice = key.split("+")
+        if choice_key not in one_hots:
+          one_hots[choice_key] = {"indices": [], "choices": [], "vals": []}
+        one_hots[choice_key]["indices"].append(idx)
+        one_hots[choice_key]["choices"].append(choice)
+        one_hots[choice_key]["vals"].append(norm[idx])
+        continue # Handle one hots later on
+      else:
+        raise NotImplementedError(f"Unknown type {token['type']}")
+      test_params[key] = tp_elem
+
+    for key in one_hots:
+      idxs = one_hots[key]["indices"]
+      vals = one_hots[key]["vals"]
+      choices = one_hots[key]["choices"]
+      assert len(idxs) == len(choices) and len(choices) == len(vals)
+      select_idx = vals.index(max(vals))
+      test_params[key] = choices[select_idx]
+
+    if return_one_hots:
+      return test_params, one_hots
+    return test_params
+
+  def normalize_test_params_vector(self, tp_vec):
+    test_params = self.get_test_parameters_from_vector(tp_vec)
+    res = [0.0 for _ in range(len(self.tokens))]
+    for token in self.tokens:
+      key = token["key"]
+      idx = token["idx"]
+      if token["type"] == "int":
+        if token["max_val"] == token["min_val"]:
+          res[idx] = 1.0
+          continue
+        res[idx] = (float(test_params[key])
+                    / (token["max_val"] - token["min_val"] + 1e-7))
+      elif token["type"] == "bool":
+        res[idx] = 1.0 if test_params[key] else 0.0
+      elif token["type"] == "choice":
+        choice_key, choice = key.split("+")
+        if test_params[choice_key] == choice:
+          res[idx] = 1.0
+      else:
+        raise NotImplementedError(f"Unknown type {token['type']}")
+
+    return res
+
+  def vectorize_test_from_file(self, test_filepath: str, normalize=True):
     with codecs.open(test_filepath, "rb") as f:
       test = yaml.load(f, Loader=yaml.FullLoader)
     assert len(test) == 1, "Test file must contain only one test"
     test_parameters = test[0]["gen_opts"].split()
-    parsed_tp = {}
-    for tp in test_parameters:
-      key, val = tp.split("=")
-      key = key[1:]
-      parsed_tp[key] = val
-      assert key in self.meta, f"Key '{key}' cannot be handled with this vocab"
-      if self.meta[key]["type"] in ["int", "bool"]:
-        parsed_tp[key] = int(val)
-    parsed_tp["rtl_test"] = test[0]["rtl_test"]
-
-    test_parameters_vec = []
-    for token in self.tokens:
-      key = token["key"]
-      if token["is_one_hot"]:
-        assert token["type"] == "choice"
-        key, one_hot_val = key.split("+")
-        test_parameters_vec.append(int(parsed_tp[key] == one_hot_val))
-        continue
-      tp_elem = parsed_tp[key]
-      if normalize and token["type"] == "int":
-        tp_elem = ((tp_elem - token["min_val"])
-                   / (token["max_val"] - token["min_val"] + 1e-7))
-      test_parameters_vec.append(tp_elem)
+    test_parameters_vec = self.vectorize_test(normalize, test, test_parameters)
 
     return test_parameters_vec
+
+  def vectorize_test(self, normalize, test, test_parameters):
+      parsed_tp = {}
+      for tp in test_parameters:
+        key, val = tp.split("=")
+        key = key[1:]
+        parsed_tp[key] = val
+        assert key in self.meta, f"Key '{key}' cannot be handled with this vocab"
+        if self.meta[key]["type"] in ["int", "bool"]:
+          parsed_tp[key] = int(val)
+      parsed_tp["rtl_test"] = test[0]["rtl_test"]
+
+      test_parameters_vec = []
+      for token in self.tokens:
+        key = token["key"]
+        if token["is_one_hot"]:
+          assert token["type"] == "choice"
+          key, one_hot_val = key.split("+")
+          test_parameters_vec.append(int(parsed_tp[key] == one_hot_val))
+          continue
+        tp_elem = parsed_tp[key]
+        if normalize and token["type"] == "int":
+          tp_elem = ((tp_elem - token["min_val"])
+                   / (token["max_val"] - token["min_val"] + 1e-7))
+        test_parameters_vec.append(tp_elem)
+      return test_parameters_vec
 
 
 class CoveredTestList:
