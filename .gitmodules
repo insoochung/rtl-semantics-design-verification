@@ -10,3 +10,6 @@
 [submodule "third_party/bigbird"]
 	path = third_party/bigbird
 	url = https://github.com/google-research/bigbird.git
+[submodule "third_party/riscv_dv"]
+	path = third_party/riscv_dv
+	url = https://github.com/google/riscv-dv.git
