@@ -1,5 +1,3 @@
-import tensorflow as tf
-import numpy as np
 import sys
 import os
 import time
@@ -8,16 +6,20 @@ import yaml
 import argparse
 from glob import glob
 
+import tensorflow as tf
+import numpy as np
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from data.utils import TestParameterVocab, BranchVocab
 from nn.models import Design2VecBase
-from data.cdfg_datagen import GraphHandler
+from nn.datagen import convert_to_tf_dataset
+from nn.train import get_d2v_model
 from cdfg.constructor import DesignGraph, Module
-from nn.train import convert_to_tf_dataset, get_d2v_model
+from data.cdfg_datagen import GraphHandler
+from data.utils import TestParameterVocab, BranchVocab
 
 
-def output_yaml_from_test_vector(vocab, tp, cp_idx, from_vector=False):
+def output_yaml_from_test_vector(vocab, tp, cp_idx, yaml_dir=".", from_vector=False):
     if from_vector:
         tp = vocab.get_test_parameters_from_vector(tp)
     adjusted_test_name = f"adjusted_test_{cp_idx}"
@@ -35,8 +37,10 @@ def output_yaml_from_test_vector(vocab, tp, cp_idx, from_vector=False):
   test: {adjusted_test_name}
   """
     gen_opts_str = (f"test: {adjusted_test_name} \n") + gen_opts_str
-    with open(f"{adjusted_test_name}.yaml", "w+") as f:
+    yaml_path = os.path.join(yaml_dir, f"{adjusted_test_name}.yaml")
+    with open(yaml_path, "w") as f:
         f.write(gen_opts_str)
+    return yaml_path
 
 
 def adjust_tp(
@@ -47,27 +51,39 @@ def adjust_tp(
     learning_rate=1,
     step_threshold=50,
     is_hit_threshold=0.9,
+    yaml_dir=".",
+):
+    vocab, bvocab, graphs, model = load_assets(graph_dir, ckpt_dir, tp_cov_dir)
+    _adjust_tp(
+        vocab,
+        bvocab,
+        graphs,
+        model,
+        cp_idx,
+        learning_rate,
+        step_threshold,
+        is_hit_threshold,
+        yaml_dir=".",
+    )
+
+
+def _adjust_tp(
+    vocab,
+    bvocab,
+    graphs,
+    model,
+    cp_idx,
+    learning_rate=1,
+    step_threshold=50,
+    is_hit_threshold=0.9,
+    yaml_dir=".",
 ):
     assert not (
         step_threshold is None and is_hit_threshold is None
     ), "Either step_threshold or is_hit_threshold must be set"
-    vocab_files = glob(os.path.join(tp_cov_dir, "vocab.[0-9]*.yaml"))
-    assert len(vocab_files) == 1
-    vocab = TestParameterVocab(vocab_filepath=vocab_files[0])
+
     tp_size = len(vocab.tokens)
-
     tp = np.random.rand(tp_size)
-    design_graph_filepath = os.path.join(graph_dir, "design_graph.pkl")
-    graph_handler = GraphHandler(design_graph_filepath, output_dir=graph_dir)
-    graphs = graph_handler.get_dataset()
-    bvocab = BranchVocab(os.path.join(tp_cov_dir, "vocab.branches.yaml"))
-
-    model_config_file = os.path.join(ckpt_dir, "meta.json")
-    model_config_json = open(model_config_file)
-    model_config = json.load(model_config_json)
-    model_config = model_config["model_config"]
-    model = get_d2v_model(**model_config)
-    model.load_weights(os.path.join(ckpt_dir, "model.ckpt"))
 
     steps = 0
     while True:
@@ -87,7 +103,29 @@ def adjust_tp(
             break
         if is_hit_threshold and is_hit > is_hit_threshold:
             break
-    output_yaml_from_test_vector(vocab, tp, cp_idx, from_vector=True)
+    return output_yaml_from_test_vector(
+        vocab, tp, cp_idx, from_vector=True, yaml_dir=yaml_dir
+    )
+
+
+def load_assets(graph_dir, ckpt_dir, tp_cov_dir):
+    vocab_files = glob(os.path.join(tp_cov_dir, "vocab.[0-9]*.yaml"))
+    assert len(vocab_files) == 1
+    vocab = TestParameterVocab(vocab_filepath=vocab_files[0])
+    bvocab = BranchVocab(os.path.join(tp_cov_dir, "vocab.branches.yaml"))
+
+    design_graph_filepath = os.path.join(graph_dir, "design_graph.pkl")
+    graph_handler = GraphHandler(design_graph_filepath, output_dir=graph_dir)
+    graphs = graph_handler.get_dataset()
+
+    model_config_file = os.path.join(ckpt_dir, "meta.json")
+    model_config_json = open(model_config_file)
+    model_config = json.load(model_config_json)
+    model_config = model_config["model_config"]
+    model_config["graphs"] = graphs
+    model = get_d2v_model(model_config)
+    model.load_weights(os.path.join(ckpt_dir, "model.ckpt"))
+    return vocab, bvocab, graphs, model
 
 
 def update_tp(tp, cp_idx, graphs, bvocab, tp_size):
@@ -143,7 +181,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-cp", "--cp_idx", type=int, help="Coverpoint index.")
     parser.add_argument(
-        "-lr", "--learning_rate", type=int, learning_rate=0.1, help="Learning rate"
+        "-lr", "--learning_rate", type=int, default=0.1, help="Learning rate"
     )
     parser.add_argument(
         "-st", "--step_threshold", type=int, default=None, help="Max steps to iterate"
@@ -153,6 +191,14 @@ if __name__ == "__main__":
         type=float,
         default=0.8,
         help="Threshold to determine if the test is hit",
+    )
+
+    parser.add_argument(
+        "-yd",
+        "--yaml_dir",
+        type=str,
+        default=".",
+        help="Where yaml files should be stored",
     )
     args = parser.parse_args()
     adjust_tp(**vars(args))

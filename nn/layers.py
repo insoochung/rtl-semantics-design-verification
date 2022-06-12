@@ -271,6 +271,10 @@ class CdfgReader(tf.keras.layers.Layer):
         else:  # Cut off cdfg information
             x = self.get_cutoff_embeddings(inputs)
 
+        # Add batch dimension if x is not a batch but a single example
+        if len(x.shape) == 2:
+            x = tf.expand_dims(x, axis=0)
+
         # Aggregate final output
         cp_masks = inputs["coverpoint_mask"]  # (batch_size, num_nodes)
         # (batch_size, num_nodes_in_cp, n_hidden)

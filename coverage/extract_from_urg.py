@@ -272,12 +272,6 @@ def get_uncovered_bin_names(col, coverage, attr_name=None):
 def extract_functional_coverage(report_path, output_dir, cov_name="default_func_cov"):
     with open(report_path, "r") as file:
         soup = BeautifulSoup(file.read(), "html.parser")
-    # var_table = soup.find("span", text=re.compile(
-    #     r"Variables for Group.*")).find_next("table")
-    # var_summary = {}
-    # for row in var_table.find_all("tr")[1:]:
-    #   cols = row.find_all("td")
-    #   var_summary[cols[0].text.strip()] = int(cols[1].text)
     print(f"Extracting functional coverage from: {report_path}")
     coverpoints = [
         span
