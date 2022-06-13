@@ -43,71 +43,6 @@ def output_yaml_from_test_vector(vocab, tp, cp_idx, yaml_dir=".", from_vector=Fa
     return yaml_path
 
 
-def adjust_tp(
-    graph_dir,
-    ckpt_dir,
-    tp_cov_dir,
-    cp_idx,
-    learning_rate=1,
-    step_threshold=50,
-    is_hit_threshold=0.9,
-    yaml_dir=".",
-):
-    vocab, bvocab, graphs, model = load_assets(graph_dir, ckpt_dir, tp_cov_dir)
-    _adjust_tp(
-        vocab,
-        bvocab,
-        graphs,
-        model,
-        cp_idx,
-        learning_rate,
-        step_threshold,
-        is_hit_threshold,
-        yaml_dir=".",
-    )
-
-
-def _adjust_tp(
-    vocab,
-    bvocab,
-    graphs,
-    model,
-    cp_idx,
-    learning_rate=1,
-    step_threshold=50,
-    is_hit_threshold=0.9,
-    yaml_dir=".",
-):
-    assert not (
-        step_threshold is None and is_hit_threshold is None
-    ), "Either step_threshold or is_hit_threshold must be set"
-
-    tp_size = len(vocab.tokens)
-    tp = np.random.rand(tp_size)
-
-    steps = 0
-    while True:
-        x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
-        with tf.GradientTape() as g:
-            g.watch(x)
-            y = model.call(x)
-            loss = y[[0]] - 1
-        is_hit = y[[0]]
-
-        dy_dx = g.gradient(loss, x)["test_parameters"]
-        tp += dy_dx * learning_rate
-        tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
-        tp = vocab.normalize_test_params_vector(tp)
-        steps += 1
-        if step_threshold and steps > step_threshold:
-            break
-        if is_hit_threshold and is_hit > is_hit_threshold:
-            break
-    return output_yaml_from_test_vector(
-        vocab, tp, cp_idx, from_vector=True, yaml_dir=yaml_dir
-    )
-
-
 def load_assets(graph_dir, ckpt_dir, tp_cov_dir):
     vocab_files = glob(os.path.join(tp_cov_dir, "vocab.[0-9]*.yaml"))
     assert len(vocab_files) == 1
@@ -154,6 +89,73 @@ def update_tp(tp, cp_idx, graphs, bvocab, tp_size):
         tf_ret[k] = tf.constant(v, dtype=v.dtype)
 
     return tf_ret
+
+
+def _adjust_tp(
+    vocab,
+    bvocab,
+    graphs,
+    model,
+    cp_idx,
+    learning_rate=1,
+    step_threshold=50,
+    is_hit_threshold=0.9,
+    yaml_dir=".",
+):
+    assert not (
+        step_threshold is None and is_hit_threshold is None
+    ), "Either step_threshold or is_hit_threshold must be set"
+
+    tp_size = len(vocab.tokens)
+    tp = np.random.rand(tp_size)
+
+    steps = 0
+    abs_threshold = 1e4  # To avoid infinite loop
+    while steps <= abs_threshold:
+        x = update_tp(tp, cp_idx, graphs, bvocab, tp_size)
+        with tf.GradientTape() as g:
+            g.watch(x)
+            y = model.call(x)
+            loss = y[[0]] - 1
+        is_hit = y[[0]]
+
+        dy_dx = g.gradient(loss, x)["test_parameters"]
+        tp += dy_dx * learning_rate
+        tp = [1 if i > 1 else 0 if i < 0 else i for i in tp.numpy()[0]]
+        tp = vocab.normalize_test_params_vector(tp)
+        steps += 1
+        if step_threshold and steps > step_threshold:
+            break
+        if is_hit_threshold and is_hit > is_hit_threshold:
+            break
+
+    return output_yaml_from_test_vector(
+        vocab, tp, cp_idx, from_vector=True, yaml_dir=yaml_dir
+    )
+
+
+def adjust_tp(
+    graph_dir,
+    ckpt_dir,
+    tp_cov_dir,
+    cp_idx,
+    learning_rate=1,
+    step_threshold=50,
+    is_hit_threshold=0.9,
+    yaml_dir=".",
+):
+    vocab, bvocab, graphs, model = load_assets(graph_dir, ckpt_dir, tp_cov_dir)
+    _adjust_tp(
+        vocab,
+        bvocab,
+        graphs,
+        model,
+        cp_idx,
+        learning_rate,
+        step_threshold,
+        is_hit_threshold,
+        yaml_dir=".",
+    )
 
 
 if __name__ == "__main__":
