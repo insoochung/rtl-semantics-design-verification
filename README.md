@@ -1,5 +1,8 @@
 # Learning semantic representation of design for verification
 
+This repository contains code for some of the experiments presented in [Learning Semantic Represntation to Verify Design](https://openreview.net/forum?id=oIhzg4GJeOf).
+
+
 ## How to
 
 ### Setup dependencies
