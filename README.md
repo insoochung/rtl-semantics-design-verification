@@ -1,6 +1,6 @@
 # Learning semantic representation of design for verification
 
-This repository contains code for some of the experiments presented in [Learning Semantic Represntation to Verify Design](https://openreview.net/forum?id=oIhzg4GJeOf).
+This repository contains code that replicates some of the experiments presented in [Learning Semantic Reprsentation to Verify Design](https://openreview.net/forum?id=oIhzg4GJeOf). Note that this is an unofficial implementation that does not have anything to do with the authors of above paper.
 
 
 ## How to
