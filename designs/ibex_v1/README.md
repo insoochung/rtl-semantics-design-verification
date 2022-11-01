@@ -1,6 +1,6 @@
 # IBEX v1
 
-This document explain steps to simulate the design and parsing the design to ASTs (RTL2AST). These steps are required to obtain datapoints to train and test design2vec frameworks.
+This document explain steps to simulate the design and parsing the design to ASTs (RTL2AST). These steps are required to obtain datapoints to train and test design2vec frameworks. The environment scripts in this directory have been tested on TAMU's Hera server. You may have to create your own scripts to generate data.
 
 ## Simulation
 
